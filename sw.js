@@ -1,4 +1,5 @@
-const CACHE = 'huevos-v4'
+const CACHE = 'huevos-v5'
+const VERSION = '2.1.0'
 const FILES = [
   './',
   './index.html',
@@ -30,18 +31,19 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return
+  if (e.request.url.includes('/api/')) return
+
   e.respondWith(
     caches.match(e.request).then(r => {
-      if (r) return r
-      return fetch(e.request).then(res => {
-        const clone = res.clone()
-        caches.open(CACHE).then(c => c.put(e.request, clone))
-        return res
-      }).catch(() => {
-        if (e.request.destination === 'document') {
-          return caches.match('./index.html')
+      const fetchPromise = fetch(e.request).then(res => {
+        if (res.ok) {
+          const clone = res.clone()
+          caches.open(CACHE).then(c => c.put(e.request, clone))
         }
-      })
+        return res
+      }).catch(() => r)
+
+      return r || fetchPromise
     })
   )
 })

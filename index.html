@@ -51,7 +51,7 @@
           </div>
           <div class="field">
             <label for="pedido-price">Valor bandeja ($)</label>
-            <input type="number" id="pedido-price" min="1" step="100" required>
+            <input type="number" id="pedido-price" min="1" required>
           </div>
         </div>
         <button type="submit" class="btn-primary">Agregar Pedido</button>
@@ -89,7 +89,7 @@
           </div>
           <div class="field">
             <label for="compra-price">Valor por caja ($)</label>
-            <input type="number" id="compra-price" min="1" step="1000" required>
+            <input type="number" id="compra-price" min="1" required>
           </div>
         </div>
         <div class="field">
@@ -106,7 +106,7 @@
         </div>
         <div class="field">
           <label for="compra-venta">Precio de venta por bandeja ($)</label>
-          <input type="number" id="compra-venta" min="1" step="100" required placeholder="Valor que vos vendés la bandeja">
+          <input type="number" id="compra-venta" min="1" required placeholder="Valor que vos vendés la bandeja">
         </div>
         <button type="submit" class="btn-primary">Registrar Compra</button>
       </form>
@@ -136,9 +136,18 @@
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js')
-      .then(reg => console.log('SW registered:', reg.scope))
-      .catch(err => console.log('SW error:', err))
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'activated') {
+            if (confirm('Hay una versión nueva. ¿Recargar?')) {
+              window.location.reload()
+            }
+          }
+        })
+      })
+    }).catch(err => console.log('SW error:', err))
   })
 }
 </script>
