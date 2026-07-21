@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#f59e0b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Control Huevos</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <h1>🥚 Control Huevos</h1>
+    <button id="btn-export" title="Exportar datos">📤</button>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab active" data-tab="pedidos">📋 Pedidos</button>
+    <button class="tab" data-tab="deudores">💰 Deudores</button>
+    <button class="tab" data-tab="pagados">✅ Pagados</button>
+    <button class="tab" data-tab="compras">📦 Compras</button>
+    <button class="tab" data-tab="contabilidad">📊 Cta.</button>
+  </nav>
+
+  <main id="content">
+
+    <!-- ===== PEDIDOS ===== -->
+    <section id="tab-pedidos" class="tab-content active">
+      <form id="form-pedido">
+        <h2>Nuevo Pedido</h2>
+        <div class="field">
+          <label for="pedido-name">Nombre del cliente</label>
+          <input type="text" id="pedido-name" required>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="pedido-trays">N° Bandejas</label>
+            <input type="number" id="pedido-trays" min="1" required>
+          </div>
+          <div class="field">
+            <label for="pedido-price">Valor bandeja ($)</label>
+            <input type="number" id="pedido-price" min="1" step="100" required>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary">Agregar Pedido</button>
+      </form>
+
+      <h2>Pendientes</h2>
+      <div id="pedidos-pendientes" class="list"></div>
+    </section>
+
+    <!-- ===== DEUDORES ===== -->
+    <section id="tab-deudores" class="tab-content">
+      <h2>Deudores</h2>
+      <p class="subtitle">Personas que deben pagar</p>
+      <div id="lista-deudores" class="list"></div>
+    </section>
+
+    <!-- ===== PAGADOS ===== -->
+    <section id="tab-pagados" class="tab-content">
+      <h2>Pagados</h2>
+      <p class="subtitle">Historial de pagos completados</p>
+      <div id="lista-pagados" class="list"></div>
+    </section>
+
+    <!-- ===== COMPRAS ===== -->
+    <section id="tab-compras" class="tab-content">
+      <form id="form-compra">
+        <h2>Registrar Compra de Huevos</h2>
+        <div class="info-box">
+          <strong>1 caja = 6 bandejas</strong>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="compra-boxes">N° Cajas</label>
+            <input type="number" id="compra-boxes" min="1" required>
+          </div>
+          <div class="field">
+            <label for="compra-price">Valor por caja ($)</label>
+            <input type="number" id="compra-price" min="1" step="1000" required>
+          </div>
+        </div>
+        <div class="field">
+          <label>Margen de ganancia</label>
+          <div class="markup-options">
+            <label class="markup-opt"><input type="radio" name="markup" value="30" checked> 30%</label>
+            <label class="markup-opt"><input type="radio" name="markup" value="35"> 35%</label>
+            <label class="markup-opt"><input type="radio" name="markup" value="40"> 40%</label>
+          </div>
+        </div>
+        <div id="sugerencia-precio" class="suggestion">
+          <span>Precio sugerido bandeja:</span>
+          <strong id="precio-sugerido">$0</strong>
+        </div>
+        <button type="submit" class="btn-primary">Registrar Compra</button>
+      </form>
+
+      <h2>Historial de Compras</h2>
+      <div id="lista-compras" class="list"></div>
+    </section>
+
+    <!-- ===== CONTABILIDAD ===== -->
+    <section id="tab-contabilidad" class="tab-content">
+      <h2>Contabilidad</h2>
+      <div id="resumen-contabilidad" class="accounting"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ===== MODAL ===== -->
+<div id="modal" class="modal hidden">
+  <div class="modal-content">
+    <p id="modal-msg"></p>
+    <div id="modal-actions" class="modal-actions"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js')
+}
+</script>
+</body>
+</html>
