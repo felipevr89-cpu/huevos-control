@@ -18,7 +18,10 @@
 <div id="app">
   <header>
     <h1>🥚 Control Huevos</h1>
-    <button id="btn-export" title="Exportar datos">📤</button>
+    <div class="header-actions">
+      <button id="btn-export" title="Exportar datos">📤</button>
+      <button id="btn-install" class="btn-install hidden" title="Instalar app">📲</button>
+    </div>
   </header>
 
   <nav id="tabs">
@@ -96,8 +99,12 @@
           </div>
         </div>
         <div id="sugerencia-precio" class="suggestion">
-          <span>Precio sugerido bandeja:</span>
+          <span>Precio sugerido (costo + margen):</span>
           <strong id="precio-sugerido">$0</strong>
+        </div>
+        <div class="field">
+          <label for="compra-venta">Precio de venta por bandeja ($)</label>
+          <input type="number" id="compra-venta" min="1" step="100" required placeholder="Valor que vos vendés la bandeja">
         </div>
         <button type="submit" class="btn-primary">Registrar Compra</button>
       </form>

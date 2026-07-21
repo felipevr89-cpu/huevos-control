@@ -59,11 +59,15 @@ header {
   z-index: 10;
 }
 header h1 { font-size: 1.2rem; font-weight: 700; }
-#btn-export {
+.header-actions { display: flex; gap: 4px; align-items: center; }
+#btn-export, #btn-install {
   background: none; border: none; color: #fff; font-size: 1.3rem;
   cursor: pointer; padding: 4px 8px; border-radius: 8px;
 }
-#btn-export:active { background: rgba(255,255,255,.2); }
+#btn-export:active, #btn-install:active { background: rgba(255,255,255,.2); }
+.btn-install { display: none; }
+.btn-install.visible { display: block; }
+.hidden { display: none !important; }
 
 #tabs {
   display: flex;

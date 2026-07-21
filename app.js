@@ -61,7 +61,7 @@
   }
 
   // ---- Purchases ----
-  function addPurchase (boxCount, pricePerBox, markupPercent) {
+  function addPurchase (boxCount, pricePerBox, markupPercent, sellingPrice) {
     const trayCost = pricePerBox / 6
     const suggestedTrayPrice = Math.round(trayCost * (1 + markupPercent / 100))
     data.purchases.push({
@@ -70,6 +70,7 @@
       pricePerBox,
       markupPercent,
       suggestedTrayPrice,
+      sellingPrice,
       date: today()
     })
     saveData()
@@ -85,9 +86,10 @@
   function getPending () { return data.orders.filter(o => o.status === 'pending') }
   function getDebtors () { return data.orders.filter(o => o.payment === 'debtor' && !o.paid) }
   function getPaidOrders () { return data.orders.filter(o => o.paid) }
-  function getLastSuggestedPrice () {
+  function getSellingPrice () {
     if (!data.purchases.length) return null
-    return data.purchases[data.purchases.length - 1].suggestedTrayPrice
+    const last = data.purchases[data.purchases.length - 1]
+    return last.sellingPrice || last.suggestedTrayPrice
   }
 
   // ---- Accounting ----
@@ -194,8 +196,11 @@
           <button class="btn-danger btn-del-purchase" data-id="${p.id}" title="Eliminar">✕</button>
         </div>
         <div class="card-row">
-          <span class="card-detail">Margen ${p.markupPercent}% · Bandeja sugerida: <strong>$${fmt(p.suggestedTrayPrice)}</strong></span>
+          <span class="card-detail">Margen ${p.markupPercent}% · Costo: $${fmt(p.suggestedTrayPrice)}</span>
           <span class="card-detail">${p.date}</span>
+        </div>
+        <div class="card-row">
+          <span class="card-detail">Venta: <strong>$${fmt(p.sellingPrice)}</strong> por bandeja</span>
         </div>
       </div>
     `).join('')
@@ -314,16 +319,16 @@
     addOrder(name, trays, price)
     $('#pedido-name').value = ''
     $('#pedido-trays').value = ''
-    const suggested = getLastSuggestedPrice()
-    $('#pedido-price').value = suggested || ''
+    const selling = getSellingPrice()
+    $('#pedido-price').value = selling || ''
     $('#pedido-name').focus()
   })
 
-  // Pre-fill suggested price
+  // Pre-fill price
   function updatePriceSuggestion () {
-    const suggested = getLastSuggestedPrice()
-    if (suggested && !$('#pedido-price').value) {
-      $('#pedido-price').value = suggested
+    const selling = getSellingPrice()
+    if (selling && !$('#pedido-price').value) {
+      $('#pedido-price').value = selling
     }
   }
 
@@ -367,7 +372,8 @@
     const boxes = parseInt($('#compra-boxes').value) || 0
     const price = parseInt($('#compra-price').value) || 0
     const markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
-    $('#precio-sugerido').textContent = boxes && price ? '$' + fmt(Math.round(price / 6 * (1 + markup / 100))) : '$0'
+    const suggested = boxes && price ? Math.round(price / 6 * (1 + markup / 100)) : 0
+    $('#precio-sugerido').textContent = suggested ? '$' + fmt(suggested) : '$0'
   }
   $('#compra-boxes').addEventListener('input', calcSuggestion)
   $('#compra-price').addEventListener('input', calcSuggestion)
@@ -379,10 +385,12 @@
     const boxes = parseInt($('#compra-boxes').value)
     const price = parseInt($('#compra-price').value)
     const markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
-    if (!boxes || !price) return
-    addPurchase(boxes, price, markup)
+    const venta = parseInt($('#compra-venta').value)
+    if (!boxes || !price || !venta) return
+    addPurchase(boxes, price, markup, venta)
     $('#compra-boxes').value = ''
     $('#compra-price').value = ''
+    $('#compra-venta').value = ''
     $('#precio-sugerido').textContent = '$0'
     updatePriceSuggestion()
   })
@@ -402,4 +410,32 @@
   // ===== Init =====
   updatePriceSuggestion()
   renderAll()
+
+  // ===== PWA Install =====
+  let deferredPrompt
+  const btnInstall = $('#btn-install')
+
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault()
+    deferredPrompt = e
+    btnInstall.classList.remove('hidden')
+    btnInstall.classList.add('visible')
+  })
+
+  btnInstall.addEventListener('click', async () => {
+    if (!deferredPrompt) return
+    deferredPrompt.prompt()
+    const { outcome } = await deferredPrompt.userChoice
+    if (outcome === 'accepted') {
+      btnInstall.classList.remove('visible')
+      btnInstall.classList.add('hidden')
+    }
+    deferredPrompt = null
+  })
+
+  window.addEventListener('appinstalled', () => {
+    btnInstall.classList.remove('visible')
+    btnInstall.classList.add('hidden')
+    deferredPrompt = null
+  })
 })()
