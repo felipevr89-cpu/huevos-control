@@ -1,4 +1,4 @@
-const CACHE = 'huevos-v3'
+const CACHE = 'huevos-v4'
 const FILES = [
   './',
   './index.html',

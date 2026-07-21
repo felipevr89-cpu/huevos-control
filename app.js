@@ -1,7 +1,10 @@
 ;(() => {
   const STORAGE_KEY = 'huevos_data'
+  const SYNC_API = 'https://huevos-sync.felipe-v-r-89.workers.dev/api/sync'
+  const SYNC_KEY_LOCAL = 'huevos_sync_key'
 
   let data = loadData()
+  let syncTimeout = null
 
   function loadData () {
     try {
@@ -14,6 +17,74 @@
   function saveData () {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
     renderAll()
+    scheduleSync()
+  }
+
+  function getSyncKey () { return localStorage.getItem(SYNC_KEY_LOCAL) }
+  function setSyncKey (key) { localStorage.setItem(SYNC_KEY_LOCAL, key) }
+
+  function scheduleSync () {
+    if (!getSyncKey()) return
+    clearTimeout(syncTimeout)
+    syncTimeout = setTimeout(syncPush, 2000)
+  }
+
+  async function syncPush () {
+    const key = getSyncKey()
+    if (!key) return
+    try {
+      const res = await fetch(SYNC_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Sync-Key': key },
+        body: JSON.stringify({ data })
+      })
+      if (res.ok) {
+        updateSyncStatus('synced')
+      } else {
+        updateSyncStatus('error')
+      }
+    } catch (_) {
+      updateSyncStatus('error')
+    }
+  }
+
+  async function syncPull () {
+    const key = getSyncKey()
+    if (!key) return false
+    try {
+      const res = await fetch(SYNC_API, {
+        headers: { 'X-Sync-Key': key }
+      })
+      if (!res.ok) return false
+      const json = await res.json()
+      if (json.data && (json.data.orders || json.data.purchases)) {
+        data = json.data
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+        renderAll()
+        updateSyncStatus('synced')
+        return true
+      }
+    } catch (_) {}
+    updateSyncStatus('error')
+    return false
+  }
+
+  function updateSyncStatus (status) {
+    const el = $('#sync-status')
+    if (!el) return
+    if (status === 'synced') {
+      el.textContent = '✅ Sincronizado'
+      el.className = 'sync-ok'
+    } else if (status === 'error') {
+      el.textContent = '❌ Error sync'
+      el.className = 'sync-error'
+    } else if (status === 'syncing') {
+      el.textContent = '🔄 Sincronizando...'
+      el.className = 'syncing'
+    } else {
+      el.textContent = ''
+      el.className = ''
+    }
   }
 
   function genId () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }
@@ -408,8 +479,41 @@
   })
 
   // ===== Init =====
+  const existingKey = getSyncKey()
+  if (existingKey) {
+    updateSyncStatus('syncing')
+    syncPull().then(() => syncPush())
+  }
   updatePriceSuggestion()
   renderAll()
+
+  // ===== Sync Settings =====
+  $('#btn-sync').addEventListener('click', () => {
+    const current = getSyncKey()
+    showModal(current ? 'Código actual: ' + current : 'Ingresa un código para sincronizar entre dispositivos', [
+      { label: '🔄 Sincronizar ahora', className: 'btn-primary', action: () => {
+        if (getSyncKey()) {
+          updateSyncStatus('syncing')
+          syncPull().then(() => syncPush())
+        }
+      }},
+      { label: current ? 'Cambiar código' : 'Ingresar código', className: 'btn-sm', action: () => {
+        const code = prompt('Código de sincronización:', current || '')
+        if (code && code.trim()) {
+          setSyncKey(code.trim())
+          updateSyncStatus('syncing')
+          syncPull().then(() => syncPush())
+        }
+      }},
+      current ? { label: 'Desconectar', className: 'btn-sm', action: () => {
+        if (confirm('¿Desactivar sincronización? Los datos locales se mantienen.')) {
+          localStorage.removeItem(SYNC_KEY_LOCAL)
+          updateSyncStatus('')
+        }
+      }} : null,
+      { label: 'Cerrar', className: 'btn-sm', action: () => {} }
+    ].filter(Boolean))
+  })
 
   // ===== PWA Install =====
   let deferredPrompt
