@@ -92,7 +92,7 @@
   function today () { return new Date().toLocaleDateString('es-CL') }
 
   // ---- Orders ----
-  function addOrder (name, trayCount, pricePerTray, isPaid) {
+  function addOrder (name, trayCount, pricePerTray) {
     data.orders.push({
       id: genId(),
       name: name.trim(),
@@ -100,10 +100,19 @@
       pricePerTray,
       total: trayCount * pricePerTray,
       date: today(),
-      payment: isPaid ? 'paid' : 'debtor',
-      paid: isPaid,
-      paidDate: isPaid ? today() : null
+      payment: null,
+      paid: false,
+      paidDate: null
     })
+    saveData()
+  }
+
+  function deliverOrder (id, isPaid) {
+    const order = data.orders.find(o => o.id === id)
+    if (!order) return
+    order.payment = isPaid ? 'paid' : 'debtor'
+    order.paid = isPaid
+    order.paidDate = isPaid ? today() : null
     saveData()
   }
 
@@ -189,6 +198,7 @@
     }
     container.innerHTML = list.map(o => `
       <div class="card" data-id="${o.id}">
+        <input type="checkbox" class="checkbox-lg chk-deliver" data-id="${o.id}">
         <div class="card-body">
           <div class="card-name">${esc(o.name)}</div>
           <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} x $${fmt(o.pricePerTray)}</div>
@@ -203,19 +213,43 @@
     const container = $('#lista-deudores')
     const list = getDebtors()
     if (!list.length) {
-      container.innerHTML = '<div class="empty-msg">No hay deudores 🎉</div>'
+      container.innerHTML = '<div class="empty-msg">No hay deudores</div>'
       return
     }
-    container.innerHTML = list.map(o => `
-      <div class="card" data-id="${o.id}">
+
+    // Check for old debtors (more than 7 days)
+    const todayDate = new Date()
+    const oldDebtors = list.filter(o => {
+      const orderDate = new Date(o.date.split('/').reverse().join('-'))
+      const diffDays = Math.floor((todayDate - orderDate) / (1000 * 60 * 60 * 24))
+      return diffDays > 7
+    })
+
+    let html = ''
+    if (oldDebtors.length > 0) {
+      html += `<div class="alert-debtors">
+        <strong>⚠️ ${oldDebtors.length} deudor${oldDebtors.length > 1 ? 'es' : ''} con más de 7 días sin pagar</strong>
+        ${oldDebtors.map(o => `<div class="alert-item">${esc(o.name)} - $${fmt(o.total)}</div>`).join('')}
+      </div>`
+    }
+
+    html += list.map(o => {
+      const orderDate = new Date(o.date.split('/').reverse().join('-'))
+      const diffDays = Math.floor((todayDate - orderDate) / (1000 * 60 * 60 * 24))
+      const isOld = diffDays > 7
+      return `
+      <div class="card ${isOld ? 'card-old-debtor' : ''}" data-id="${o.id}">
         <input type="checkbox" class="checkbox-lg chk-pay" data-id="${o.id}">
         <div class="card-body">
           <div class="card-name">${esc(o.name)}</div>
-          <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} · ${o.date}</div>
+          <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} · ${o.date} ${isOld ? '⚠️ ' + diffDays + ' días' : ''}</div>
         </div>
         <div class="card-amount">$${fmt(o.total)}</div>
       </div>
-    `).join('')
+    `
+    }).join('')
+
+    container.innerHTML = html
   }
 
   function renderPaid () {
@@ -363,16 +397,13 @@
     const name = $('#pedido-name').value.trim()
     const trays = parseInt($('#pedido-trays').value)
     const price = parseInt($('#pedido-price').value)
-    const isPaid = document.querySelector('input[name="pedido-pago"]:checked').value === 'si'
     if (!name || !trays || !price) return
-    addOrder(name, trays, price, isPaid)
+    addOrder(name, trays, price)
     $('#pedido-name').value = ''
     $('#pedido-trays').value = ''
     const selling = getSellingPrice()
     $('#pedido-price').value = selling || ''
     $('#pedido-name').focus()
-    if (isPaid) switchTab('pagados')
-    else switchTab('deudores')
   })
 
   // Pre-fill price
@@ -382,6 +413,18 @@
       $('#pedido-price').value = selling
     }
   }
+
+  // Deliver order
+  $('#pedidos-pendientes').addEventListener('click', e => {
+    if (!e.target.classList.contains('chk-deliver')) return
+    e.preventDefault()
+    const id = e.target.dataset.id
+    showModal('¿El cliente pagó o queda como deudor?', [
+      { label: '✅ Pagado', className: 'btn-primary', action: () => { deliverOrder(id, true); switchTab('pagados') } },
+      { label: '📝 No pagado', className: 'btn-sm', action: () => { deliverOrder(id, false); switchTab('deudores') } },
+      { label: 'Cancelar', className: 'btn-sm', action: () => {} }
+    ])
+  })
 
   // Pay debtor
   $('#lista-deudores').addEventListener('click', e => {

@@ -397,3 +397,29 @@ input:focus { border-color: var(--amber-400); }
 @media (min-width: 481px) {
   body { border-left: 1px solid var(--stone-200); border-right: 1px solid var(--stone-200); }
 }
+
+/* Old debtor alert */
+.alert-debtors {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 12px;
+  font-size: .85rem;
+}
+.alert-debtors strong {
+  color: #dc2626;
+  display: block;
+  margin-bottom: 8px;
+}
+.alert-item {
+  color: #991b1b;
+  padding: 4px 0;
+  border-bottom: 1px solid #fecaca;
+}
+.alert-item:last-child {
+  border-bottom: none;
+}
+.card-old-debtor {
+  border-left: 3px solid #ef4444;
+}
