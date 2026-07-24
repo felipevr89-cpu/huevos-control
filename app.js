@@ -92,7 +92,7 @@
   function today () { return new Date().toLocaleDateString('es-CL') }
 
   // ---- Orders ----
-  function addOrder (name, trayCount, pricePerTray) {
+  function addOrder (name, trayCount, pricePerTray, isPaid) {
     data.orders.push({
       id: genId(),
       name: name.trim(),
@@ -100,21 +100,10 @@
       pricePerTray,
       total: trayCount * pricePerTray,
       date: today(),
-      status: 'pending',
-      payment: null,
-      paid: false,
-      paidDate: null
+      payment: isPaid ? 'paid' : 'debtor',
+      paid: isPaid,
+      paidDate: isPaid ? today() : null
     })
-    saveData()
-  }
-
-  function deliverOrder (id, paymentMethod) {
-    const order = data.orders.find(o => o.id === id)
-    if (!order) return
-    order.status = 'delivered'
-    order.payment = paymentMethod
-    order.paid = paymentMethod === 'cash'
-    order.paidDate = paymentMethod === 'cash' ? today() : null
     saveData()
   }
 
@@ -122,6 +111,7 @@
     const order = data.orders.find(o => o.id === id)
     if (!order) return
     order.paid = true
+    order.payment = 'paid'
     order.paidDate = today()
     saveData()
   }
@@ -154,8 +144,8 @@
   }
 
   // ---- Queries ----
-  function getPending () { return data.orders.filter(o => o.status === 'pending') }
-  function getDebtors () { return data.orders.filter(o => o.payment === 'debtor' && !o.paid) }
+  function getPending () { return data.orders.filter(o => !o.paid && o.payment !== 'debtor') }
+  function getDebtors () { return data.orders.filter(o => !o.paid) }
   function getPaidOrders () { return data.orders.filter(o => o.paid) }
   function getSellingPrice () {
     if (!data.purchases.length) return null
@@ -166,18 +156,16 @@
   // ---- Accounting ----
   function calcAccounting () {
     const paidOrders = data.orders.filter(o => o.paid)
-    const totalCash = paidOrders.filter(o => o.payment === 'cash').reduce((s, o) => s + o.total, 0)
-    const totalDebtorPaid = paidOrders.filter(o => o.payment === 'debtor').reduce((s, o) => s + o.total, 0)
-    const totalPendingDebt = data.orders.filter(o => o.payment === 'debtor' && !o.paid).reduce((s, o) => s + o.total, 0)
-    const totalEarned = totalCash + totalDebtorPaid
+    const totalEarned = paidOrders.reduce((s, o) => s + o.total, 0)
+    const totalPendingDebt = data.orders.filter(o => !o.paid).reduce((s, o) => s + o.total, 0)
     const totalBoxesBought = data.purchases.reduce((s, p) => s + p.boxCount, 0)
     const totalTraysBought = totalBoxesBought * 6
     const totalSpent = data.purchases.reduce((s, p) => s + p.boxCount * p.pricePerBox, 0)
     const profit = totalEarned - totalSpent
-    const deliveredTrays = data.orders.filter(o => o.status === 'delivered').reduce((s, o) => s + o.trayCount, 0)
+    const deliveredTrays = data.orders.filter(o => o.paid).reduce((s, o) => s + o.trayCount, 0)
     const remainingTrays = totalTraysBought - deliveredTrays
 
-    return { totalCash, totalDebtorPaid, totalPendingDebt, totalEarned, totalBoxesBought, totalTraysBought, totalSpent, profit, deliveredTrays, remainingTrays, totalOrders: data.orders.length }
+    return { totalEarned, totalPendingDebt, totalBoxesBought, totalTraysBought, totalSpent, profit, deliveredTrays, remainingTrays, totalOrders: data.orders.length }
   }
 
   // ===== UI =====
@@ -201,7 +189,6 @@
     }
     container.innerHTML = list.map(o => `
       <div class="card" data-id="${o.id}">
-        <input type="checkbox" class="checkbox-lg chk-deliver" data-id="${o.id}">
         <div class="card-body">
           <div class="card-name">${esc(o.name)}</div>
           <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} x $${fmt(o.pricePerTray)}</div>
@@ -243,9 +230,7 @@
         <div class="card-body">
           <div class="card-name">${esc(o.name)}</div>
           <div class="card-detail">
-            ${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} · $${fmt(o.total)}
-            <span class="card-status ${o.payment}">${o.payment === 'cash' ? 'Efectivo' : 'Deudor'}</span>
-            · ${o.paidDate}
+            ${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} · $${fmt(o.total)} · ${o.paidDate}
           </div>
         </div>
         <div class="card-amount">$${fmt(o.total)}</div>
@@ -282,20 +267,12 @@
     const container = $('#resumen-contabilidad')
     container.innerHTML = `
       <div class="acct-card">
-        <span class="label">Ventas en efectivo</span>
-        <span class="value">$${fmt(a.totalCash)}</span>
-      </div>
-      <div class="acct-card">
-        <span class="label">Deudores pagados</span>
-        <span class="value">$${fmt(a.totalDebtorPaid)}</span>
+        <span class="label">Total cobrado</span>
+        <span class="value">$${fmt(a.totalEarned)}</span>
       </div>
       <div class="acct-card ${a.totalPendingDebt > 0 ? 'acct-loss' : ''}">
         <span class="label">Por cobrar (deudores)</span>
         <span class="value">$${fmt(a.totalPendingDebt)}</span>
-      </div>
-      <div class="acct-card">
-        <span class="label">Total ganado (recibido)</span>
-        <span class="value">$${fmt(a.totalEarned)}</span>
       </div>
       <div class="acct-card">
         <span class="label">Inversión en cajas</span>
@@ -386,13 +363,16 @@
     const name = $('#pedido-name').value.trim()
     const trays = parseInt($('#pedido-trays').value)
     const price = parseInt($('#pedido-price').value)
+    const isPaid = document.querySelector('input[name="pedido-pago"]:checked').value === 'si'
     if (!name || !trays || !price) return
-    addOrder(name, trays, price)
+    addOrder(name, trays, price, isPaid)
     $('#pedido-name').value = ''
     $('#pedido-trays').value = ''
     const selling = getSellingPrice()
     $('#pedido-price').value = selling || ''
     $('#pedido-name').focus()
+    if (isPaid) switchTab('pagados')
+    else switchTab('deudores')
   })
 
   // Pre-fill price
@@ -402,18 +382,6 @@
       $('#pedido-price').value = selling
     }
   }
-
-  // Deliver order
-  $('#pedidos-pendientes').addEventListener('click', e => {
-    if (!e.target.classList.contains('chk-deliver')) return
-    e.preventDefault()
-    const id = e.target.dataset.id
-    showModal('¿Canceló en efectivo o es deudor?', [
-      { label: '💵 Efectivo', className: 'btn-primary', action: () => { deliverOrder(id, 'cash'); switchTab('pagados') } },
-      { label: '📝 Deudor', className: 'btn-sm', action: () => { deliverOrder(id, 'debtor'); switchTab('deudores') } },
-      { label: 'Cancelar', className: 'btn-sm', action: () => {} }
-    ])
-  })
 
   // Pay debtor
   $('#lista-deudores').addEventListener('click', e => {

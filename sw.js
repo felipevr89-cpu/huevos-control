@@ -1,4 +1,4 @@
-const CACHE = 'huevos-v5'
+const CACHE = 'huevos-v6'
 const VERSION = '2.1.0'
 const FILES = [
   './',
