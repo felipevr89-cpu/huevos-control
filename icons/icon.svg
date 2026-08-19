@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="100" fill="#f59e0b"/>
+  <circle cx="256" cy="220" r="120" fill="#fef3c7"/>
+  <ellipse cx="256" cy="200" rx="70" ry="90" fill="#fde68a"/>
+  <ellipse cx="256" cy="190" rx="50" ry="65" fill="#fef9c3"/>
+  <ellipse cx="240" cy="175" rx="8" ry="12" fill="#f59e0b" opacity="0.6"/>
+  <ellipse cx="272" cy="175" rx="8" ry="12" fill="#f59e0b" opacity="0.6"/>
+  <path d="M240 200 Q256 215 272 200" stroke="#d97706" stroke-width="3" fill="none"/>
+  <text x="256" y="390" text-anchor="middle" font-family="Arial" font-weight="bold" font-size="80" fill="#fff">H</text>
+</svg>
