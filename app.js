@@ -528,8 +528,8 @@
     var boxes = parseInt($('#compra-boxes').value)
     var price = parseInt($('#compra-price').value)
     var markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
-    var selling = parseInt($('#compra-selling').value)
-    if (!boxes || !price || !selling) return
+    var selling = parseInt($('#compra-selling').value) || 0
+    if (!boxes || !price) return
     addPurchase(boxes, price, markup, selling)
     $('#compra-boxes').value = ''
     $('#compra-price').value = ''

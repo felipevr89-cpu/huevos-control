@@ -17,7 +17,12 @@
 <div id="app">
   <header>
     <h1>🥚 Control Huevos</h1>
-    <button id="btn-export" title="Exportar datos">📤</button>
+    <div class="header-actions">
+      <span id="sync-status" class="sync-status sync-ok">✅</span>
+      <button id="btn-export" title="Exportar datos">📤</button>
+      <button id="btn-import" title="Importar datos">📥</button>
+      <input type="file" id="import-file" accept=".json" style="display:none">
+    </div>
   </header>
 
   <nav id="tabs">
@@ -26,11 +31,11 @@
     <button class="tab" data-tab="pagados">✅ Pagados</button>
     <button class="tab" data-tab="compras">📦 Compras</button>
     <button class="tab" data-tab="contabilidad">📊 Cta.</button>
+    <button class="tab" data-tab="notas">📝 Notas</button>
   </nav>
 
   <main id="content">
 
-    <!-- ===== PEDIDOS ===== -->
     <section id="tab-pedidos" class="tab-content active">
       <form id="form-pedido">
         <h2>Nuevo Pedido</h2>
@@ -48,34 +53,32 @@
             <input type="number" id="pedido-price" min="1" step="100" required>
           </div>
         </div>
+        <div class="field">
+          <label for="pedido-date">Fecha de entrega (opcional)</label>
+          <input type="date" id="pedido-date">
+        </div>
         <button type="submit" class="btn-primary">Agregar Pedido</button>
       </form>
-
       <h2>Pendientes</h2>
       <div id="pedidos-pendientes" class="list"></div>
     </section>
 
-    <!-- ===== DEUDORES ===== -->
     <section id="tab-deudores" class="tab-content">
       <h2>Deudores</h2>
       <p class="subtitle">Personas que deben pagar</p>
       <div id="lista-deudores" class="list"></div>
     </section>
 
-    <!-- ===== PAGADOS ===== -->
     <section id="tab-pagados" class="tab-content">
       <h2>Pagados</h2>
       <p class="subtitle">Historial de pagos completados</p>
       <div id="lista-pagados" class="list"></div>
     </section>
 
-    <!-- ===== COMPRAS ===== -->
     <section id="tab-compras" class="tab-content">
       <form id="form-compra">
         <h2>Registrar Compra de Huevos</h2>
-        <div class="info-box">
-          <strong>1 caja = 6 bandejas</strong>
-        </div>
+        <div class="info-box"><strong>1 caja = 6 bandejas</strong></div>
         <div class="field-row">
           <div class="field">
             <label for="compra-boxes">N° Cajas</label>
@@ -98,23 +101,30 @@
           <span>Precio sugerido bandeja:</span>
           <strong id="precio-sugerido">$0</strong>
         </div>
+        <div class="field">
+          <label for="compra-selling">Mi precio de venta por bandeja ($)</label>
+          <input type="number" id="compra-selling" min="1" step="100">
+        </div>
         <button type="submit" class="btn-primary">Registrar Compra</button>
       </form>
-
       <h2>Historial de Compras</h2>
       <div id="lista-compras" class="list"></div>
     </section>
 
-    <!-- ===== CONTABILIDAD ===== -->
     <section id="tab-contabilidad" class="tab-content">
       <h2>Contabilidad</h2>
       <div id="resumen-contabilidad" class="accounting"></div>
     </section>
 
+    <section id="tab-notas" class="tab-content">
+      <h2>📝 Notas</h2>
+      <p class="subtitle">Notas generales (se sincronizan entre dispositivos)</p>
+      <textarea id="notas-textarea" class="notas-textarea" placeholder="Escribe tus notas aquí..."></textarea>
+    </section>
+
   </main>
 </div>
 
-<!-- ===== MODAL ===== -->
 <div id="modal" class="modal hidden">
   <div class="modal-content">
     <p id="modal-msg"></p>
@@ -123,10 +133,5 @@
 </div>
 
 <script src="app.js"></script>
-<script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js')
-}
-</script>
 </body>
 </html>
