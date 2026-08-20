@@ -5,13 +5,14 @@
 
   let data = loadData()
   let lastSync = 0
+  let syncing = false
 
   function loadData () {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) return JSON.parse(raw)
     } catch (_) {}
-    return { orders: [], purchases: [], notes: '' }
+    return { orders: [], purchases: [], notes: '', deleted: [] }
   }
 
   function saveData () {
@@ -21,7 +22,6 @@
   }
 
   function genId () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }
-
   function today () { return new Date().toLocaleDateString('es-CL') }
 
   function daysSince (dateStr) {
@@ -29,16 +29,17 @@
     const parts = dateStr.split('-')
     if (parts.length !== 3) return 999
     const d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]))
-    const now = new Date()
-    const diff = Math.floor((now - d) / (1000 * 60 * 60 * 24))
-    return diff
+    return Math.floor((new Date() - d) / (1000 * 60 * 60 * 24))
   }
 
   // ===== SYNC =====
   async function syncFromWorker () {
+    if (syncing) return
+    syncing = true
+    updateSyncIcon('syncing')
     try {
       const res = await fetch(SYNC_API, { headers: { 'X-Sync-Key': SYNC_KEY } })
-      if (!res.ok) return
+      if (!res.ok) throw new Error('HTTP ' + res.status)
       const json = await res.json()
       const remote = json.data || {}
       const deletedIds = new Set((remote.deleted || []).map(d => d.id))
@@ -47,37 +48,43 @@
       const remoteNotes = remote.notes || ''
       const remoteNotesUpdated = remote.notesUpdatedAt || 0
 
-      if (remoteOrders.length > 0 || remotePurchases.length > 0) {
-        const localIds = new Set(data.orders.map(o => o.id))
-        remoteOrders.forEach(ro => {
-          if (!localIds.has(ro.id)) {
-            data.orders.push(ro)
-          } else {
-            const local = data.orders.find(o => o.id === ro.id)
-            if (local && (ro.updatedAt || 0) > (local.updatedAt || 0)) {
-              Object.assign(local, ro)
-            }
+      const localIds = new Set(data.orders.map(o => o.id))
+      remoteOrders.forEach(ro => {
+        if (!localIds.has(ro.id)) {
+          data.orders.push(ro)
+        } else {
+          const local = data.orders.find(o => o.id === ro.id)
+          if (local && (ro.updatedAt || 0) > (local.updatedAt || 0)) {
+            Object.assign(local, ro)
           }
-        })
-        const localPurIds = new Set(data.purchases.map(p => p.id))
-        remotePurchases.forEach(rp => {
-          if (!localPurIds.has(rp.id)) data.purchases.push(rp)
-        })
-        data.orders = data.orders.filter(o => !deletedIds.has(o.id))
-      }
+        }
+      })
+      const localPurIds = new Set(data.purchases.map(p => p.id))
+      remotePurchases.forEach(rp => {
+        if (!localPurIds.has(rp.id)) data.purchases.push(rp)
+      })
+      data.orders = data.orders.filter(o => !deletedIds.has(o.id))
 
       if (remoteNotes && (!data.notes || remoteNotesUpdated > (data.notesUpdatedAt || 0))) {
         data.notes = remoteNotes
         data.notesUpdatedAt = remoteNotesUpdated
       }
 
+      if (!data.deleted) data.deleted = []
       normalizeOrders()
       lastSync = Date.now()
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-    } catch (e) { /* offline, skip */ }
+      updateSyncIcon('ok')
+    } catch (e) {
+      updateSyncIcon('error')
+    }
+    syncing = false
   }
 
   async function syncToWorker () {
+    if (syncing) return
+    syncing = true
+    updateSyncIcon('syncing')
     try {
       const payload = {
         data: {
@@ -88,16 +95,27 @@
           deleted: data.deleted || []
         }
       }
-      await fetch(SYNC_API, {
+      const res = await fetch(SYNC_API, {
         method: 'POST',
-        headers: {
-          'X-Sync-Key': SYNC_KEY,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'X-Sync-Key': SYNC_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
+      if (!res.ok) throw new Error('HTTP ' + res.status)
       lastSync = Date.now()
-    } catch (e) { /* offline, skip */ }
+      updateSyncIcon('ok')
+    } catch (e) {
+      updateSyncIcon('error')
+    }
+    syncing = false
+  }
+
+  function updateSyncIcon (state) {
+    const el = $('#sync-status')
+    if (!el) return
+    el.className = 'sync-status sync-' + state
+    if (state === 'syncing') el.textContent = '🔄'
+    else if (state === 'ok') el.textContent = '✅'
+    else el.textContent = '⚠️'
   }
 
   function normalizeOrders () {
@@ -122,16 +140,9 @@
   // ===== Orders =====
   function addOrder (name, trayCount, pricePerTray) {
     data.orders.push({
-      id: genId(),
-      name: name.trim(),
-      trayCount,
-      pricePerTray,
-      total: trayCount * pricePerTray,
-      date: today(),
-      status: 'pending',
-      payment: null,
-      paid: false,
-      paidDate: null,
+      id: genId(), name: name.trim(), trayCount, pricePerTray,
+      total: trayCount * pricePerTray, date: today(),
+      status: 'pending', payment: null, paid: false, paidDate: null,
       updatedAt: Date.now()
     })
     saveData()
@@ -179,47 +190,32 @@
     const order = data.orders.find(o => o.id === id)
     if (!order) return
     const modal = $('#modal')
-    $('#modal-msg').innerHTML = `Editar pedido de <strong>${esc(order.name)}</strong>`
+    $('#modal-msg').innerHTML = 'Editar pedido de <strong>' + esc(order.name) + '</strong>'
     const actions = $('#modal-actions')
-    actions.innerHTML = `
-      <div class="modal-edit-row">
-        <label>Nombre</label>
-        <input type="text" id="edit-name" value="${esc(order.name)}">
-        <label>Bandejas</label>
-        <input type="number" id="edit-trays" value="${order.trayCount}" min="1">
-        <label>Precio por bandeja ($)</label>
-        <input type="number" id="edit-price" value="${order.pricePerTray}" min="1" step="100">
-      </div>
-    `
-    actions.innerHTML += `
-      <button class="btn-primary" id="edit-save">Guardar</button>
-      <button class="btn-sm" id="edit-cancel">Cancelar</button>
-    `
+    actions.innerHTML = '<div class="modal-edit-row">' +
+      '<label>Nombre</label><input type="text" id="edit-name" value="' + esc(order.name) + '">' +
+      '<label>Bandejas</label><input type="number" id="edit-trays" value="' + order.trayCount + '" min="1">' +
+      '<label>Precio por bandeja ($)</label><input type="number" id="edit-price" value="' + order.pricePerTray + '" min="1" step="100">' +
+      '</div>' +
+      '<button class="btn-primary" id="edit-save">Guardar</button>' +
+      '<button class="btn-sm" id="edit-cancel">Cancelar</button>'
     modal.classList.remove('hidden')
-    $('#edit-save').onclick = () => {
-      const n = $('#edit-name').value.trim()
-      const t = parseInt($('#edit-trays').value)
-      const p = parseInt($('#edit-price').value)
-      if (n && t && p) {
-        editOrder(id, n, t, p)
-        hideModal()
-      }
+    $('#edit-save').onclick = function () {
+      var n = $('#edit-name').value.trim()
+      var t = parseInt($('#edit-trays').value)
+      var p = parseInt($('#edit-price').value)
+      if (n && t && p) { editOrder(id, n, t, p); hideModal() }
     }
     $('#edit-cancel').onclick = hideModal
   }
 
   // ===== Purchases =====
   function addPurchase (boxCount, pricePerBox, markupPercent) {
-    const trayCost = pricePerBox / 6
-    const suggestedTrayPrice = Math.round(trayCost * (1 + markupPercent / 100))
+    var trayCost = pricePerBox / 6
+    var suggestedTrayPrice = Math.round(trayCost * (1 + markupPercent / 100))
     data.purchases.push({
-      id: genId(),
-      boxCount,
-      pricePerBox,
-      markupPercent,
-      suggestedTrayPrice,
-      sellingPrice: suggestedTrayPrice,
-      date: today()
+      id: genId(), boxCount, pricePerBox, markupPercent,
+      suggestedTrayPrice, sellingPrice: suggestedTrayPrice, date: today()
     })
     saveData()
     return suggestedTrayPrice
@@ -233,8 +229,8 @@
   // ===== Queries =====
   function getPending () { return data.orders.filter(o => o.status === 'pending') }
   function getDebtors () { return data.orders.filter(o => o.payment === 'debtor' && !o.paid) }
-  function getPaidOrders () { return data.orders.filter(o => o.paid || (o.status === 'delivered' && o.payment === 'cash')) }
   function getDelivered () { return data.orders.filter(o => o.status === 'delivered') }
+  function getPaidOrders () { return getDelivered().filter(o => o.paid) }
   function getLastSuggestedPrice () {
     if (!data.purchases.length) return null
     return data.purchases[data.purchases.length - 1].suggestedTrayPrice
@@ -242,24 +238,27 @@
 
   // ===== Accounting =====
   function calcAccounting () {
-    const delivered = getDelivered()
-    const paidOrders = delivered.filter(o => o.paid)
-    const totalCash = paidOrders.filter(o => o.payment === 'cash').reduce((s, o) => s + o.total, 0)
-    const totalDebtorPaid = paidOrders.filter(o => o.payment === 'debtor').reduce((s, o) => s + o.total, 0)
-    const totalPendingDebt = getDebtors().reduce((s, o) => s + o.total, 0)
-    const totalEarned = totalCash + totalDebtorPaid
-    const totalBoxesBought = data.purchases.reduce((s, p) => s + p.boxCount, 0)
-    const totalTraysBought = totalBoxesBought * 6
-    const totalSpent = data.purchases.reduce((s, p) => s + p.boxCount * p.pricePerBox, 0)
-    const profit = totalEarned - totalSpent
-    const deliveredTrays = delivered.reduce((s, o) => s + o.trayCount, 0)
-    const remainingTrays = totalTraysBought - deliveredTrays
-    return { totalCash, totalDebtorPaid, totalPendingDebt, totalEarned, totalBoxesBought, totalTraysBought, totalSpent, profit, deliveredTrays, remainingTrays, totalOrders: data.orders.length }
+    var delivered = getDelivered()
+    var paidOrders = delivered.filter(o => o.paid)
+    var totalCash = paidOrders.filter(o => o.payment === 'cash').reduce(function (s, o) { return s + o.total }, 0)
+    var totalDebtorPaid = paidOrders.filter(o => o.payment === 'debtor').reduce(function (s, o) { return s + o.total }, 0)
+    var totalPendingDebt = getDebtors().reduce(function (s, o) { return s + o.total }, 0)
+    var totalEarned = totalCash + totalDebtorPaid
+    var totalBoxesBought = data.purchases.reduce(function (s, p) { return s + p.boxCount }, 0)
+    var totalTraysBought = totalBoxesBought * 6
+    var totalSpent = data.purchases.reduce(function (s, p) { return s + p.boxCount * p.pricePerBox }, 0)
+    var profit = totalEarned - totalSpent
+    var deliveredTrays = delivered.reduce(function (s, o) { return s + o.trayCount }, 0)
+    var remainingTrays = totalTraysBought - deliveredTrays
+    return { totalCash: totalCash, totalDebtorPaid: totalDebtorPaid, totalPendingDebt: totalPendingDebt,
+      totalEarned: totalEarned, totalBoxesBought: totalBoxesBought, totalTraysBought: totalTraysBought,
+      totalSpent: totalSpent, profit: profit, deliveredTrays: deliveredTrays,
+      remainingTrays: remainingTrays, totalOrders: data.orders.length }
   }
 
   // ===== UI =====
-  const $ = s => document.querySelector(s)
-  const $$ = s => document.querySelectorAll(s)
+  var $ = function (s) { return document.querySelector(s) }
+  var $$ = function (s) { return document.querySelectorAll(s) }
 
   function renderAll () {
     renderPending()
@@ -271,131 +270,128 @@
   }
 
   function renderPending () {
-    const container = $('#pedidos-pendientes')
-    const list = getPending()
+    var container = $('#pedidos-pendientes')
+    var list = getPending()
     if (!list.length) {
       container.innerHTML = '<div class="empty-msg">No hay pedidos pendientes</div>'
       return
     }
-    container.innerHTML = list.map(o => `
-      <div class="card" data-id="${o.id}">
-        <input type="checkbox" class="checkbox-lg chk-deliver" data-id="${o.id}">
-        <div class="card-body">
-          <div class="card-name">${esc(o.name)}</div>
-          <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} x $${fmt(o.pricePerTray)} · ${o.date}</div>
-          ${o.deliveryDate ? `<span class="badge-delivery">Entrega: ${esc(o.deliveryDate)}</span>` : ''}
-        </div>
-        <div class="card-amount">$${fmt(o.total)}</div>
-        <div class="card-actions">
-          <button class="btn-edit btn-edit-order" data-id="${o.id}" title="Editar">✏️</button>
-          <button class="btn-danger btn-del" data-id="${o.id}" title="Eliminar">✕</button>
-        </div>
-      </div>
-    `).join('')
+    container.innerHTML = list.map(function (o) {
+      return '<div class="card" data-id="' + o.id + '">' +
+        '<input type="checkbox" class="checkbox-lg chk-deliver" data-id="' + o.id + '">' +
+        '<div class="card-body">' +
+        '<div class="card-name">' + esc(o.name) + '</div>' +
+        '<div class="card-detail">' + o.trayCount + ' bandeja' + (o.trayCount !== 1 ? 's' : '') + ' x $' + fmt(o.pricePerTray) + ' · ' + o.date + '</div>' +
+        (o.deliveryDate ? '<span class="badge-delivery">Entrega: ' + esc(o.deliveryDate) + '</span>' : '') +
+        '</div>' +
+        '<div class="card-amount">$' + fmt(o.total) + '</div>' +
+        '<div class="card-actions">' +
+        '<button class="btn-edit btn-edit-order" data-id="' + o.id + '" title="Editar">✏️</button>' +
+        '<button class="btn-danger btn-del" data-id="' + o.id + '" title="Eliminar">✕</button>' +
+        '</div></div>'
+    }).join('')
   }
 
   function renderDebtors () {
-    const container = $('#lista-deudores')
-    const list = getDebtors()
-    const oldDebtors = list.filter(o => daysSince(o.date) > 7)
-    let html = ''
+    var container = $('#lista-deudores')
+    var list = getDebtors()
+    var oldDebtors = list.filter(function (o) { return daysSince(o.date) > 7 })
+    var html = ''
     if (oldDebtors.length > 0) {
-      html += `<div class="alert-banner">
-        <div class="alert-banner-title">⚠️ Deudores con más de 7 días</div>
-        <ul class="alert-banner-list">
-          ${oldDebtors.map(o => `<li>${esc(o.name)} — $${fmt(o.total)} (${daysSince(o.date)} días)</li>`).join('')}
-        </ul>
-      </div>`
+      html += '<div class="alert-banner">' +
+        '<div class="alert-banner-title">⚠️ Deudores con más de 7 días</div>' +
+        '<ul class="alert-banner-list">' +
+        oldDebtors.map(function (o) {
+          return '<li>' + esc(o.name) + ' — $' + fmt(o.total) + ' (' + daysSince(o.date) + ' días)</li>'
+        }).join('') +
+        '</ul></div>'
     }
     if (!list.length) {
       html += '<div class="empty-msg">No hay deudores</div>'
       container.innerHTML = html
       return
     }
-    html += list.map(o => {
-      const days = daysSince(o.date)
-      const overdue = days > 7 ? ' overdue' : ''
-      return `
-        <div class="card${overdue}" data-id="${o.id}">
-          <input type="checkbox" class="checkbox-lg chk-pay" data-id="${o.id}">
-          <div class="card-body">
-            <div class="card-name">${esc(o.name)}</div>
-            <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} · $${fmt(o.total)} · ${o.date}</div>
-            ${days > 7 ? `<span class="badge-overdue">${days} días sin pagar</span>` : ''}
-          </div>
-          <div class="card-amount">$${fmt(o.total)}</div>
-        </div>
-      `
+    html += list.map(function (o) {
+      var days = daysSince(o.date)
+      var cls = days > 7 ? ' card-overdue' : ''
+      return '<div class="card' + cls + '" data-id="' + o.id + '">' +
+        '<input type="checkbox" class="checkbox-lg chk-pay" data-id="' + o.id + '">' +
+        '<div class="card-body">' +
+        '<div class="card-name">' + esc(o.name) + '</div>' +
+        '<div class="card-detail">' + o.trayCount + ' bandeja' + (o.trayCount !== 1 ? 's' : '') + ' · $' + fmt(o.total) + ' · ' + o.date + '</div>' +
+        (days > 7 ? '<span class="badge-overdue">' + days + ' días sin pagar</span>' : '') +
+        '</div>' +
+        '<div class="card-amount">$' + fmt(o.total) + '</div></div>'
     }).join('')
     container.innerHTML = html
   }
 
   function renderPaid () {
-    const container = $('#lista-pagados')
-    const list = getDelivered().filter(o => o.paid)
+    var container = $('#lista-pagados')
+    var list = getPaidOrders().sort(function (a, b) {
+      var da = a.paidDate || a.date || ''
+      var db = b.paidDate || b.date || ''
+      var pa = da.split('-').reverse().join('')
+      var pb = db.split('-').reverse().join('')
+      return pb.localeCompare(pa)
+    })
     if (!list.length) {
       container.innerHTML = '<div class="empty-msg">No hay pagos registrados</div>'
       return
     }
-    container.innerHTML = list.map(o => `
-      <div class="card" data-id="${o.id}">
-        <div class="card-body">
-          <div class="card-name">${esc(o.name)}</div>
-          <div class="card-detail">
-            ${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} · $${fmt(o.total)}
-            <span class="card-status ${o.payment}">${o.payment === 'cash' ? 'Efectivo' : 'Deudor'}</span>
-            · ${o.paidDate || o.date}
-          </div>
-        </div>
-        <div class="card-amount">$${fmt(o.total)}</div>
-      </div>
-    `).join('')
+    container.innerHTML = list.map(function (o) {
+      return '<div class="card" data-id="' + o.id + '">' +
+        '<div class="card-body">' +
+        '<div class="card-name">' + esc(o.name) + '</div>' +
+        '<div class="card-detail">' +
+        o.trayCount + ' bandeja' + (o.trayCount !== 1 ? 's' : '') + ' · $' + fmt(o.total) +
+        ' · ' + (o.paidDate || o.date) +
+        '</div></div>' +
+        '<div class="card-amount">$' + fmt(o.total) + '</div></div>'
+    }).join('')
   }
 
   function renderPurchases () {
-    const container = $('#lista-compras')
+    var container = $('#lista-compras')
     if (!data.purchases.length) {
       container.innerHTML = '<div class="empty-msg">No hay compras registradas</div>'
       return
     }
-    container.innerHTML = data.purchases.slice().reverse().map(p => `
-      <div class="card purchase-card" data-id="${p.id}">
-        <div class="card-row">
-          <div><strong>${p.boxCount} caja${p.boxCount !== 1 ? 's' : ''}</strong> · $${fmt(p.pricePerBox)} c/u</div>
-          <button class="btn-danger btn-del-purchase" data-id="${p.id}" title="Eliminar">✕</button>
-        </div>
-        <div class="card-row">
-          <span class="card-detail">Margen ${p.markupPercent}% · Bandeja sugerida: <strong>$${fmt(p.suggestedTrayPrice)}</strong></span>
-          <span class="card-detail">${p.date}</span>
-        </div>
-      </div>
-    `).join('')
+    container.innerHTML = data.purchases.slice().reverse().map(function (p) {
+      return '<div class="card purchase-card" data-id="' + p.id + '">' +
+        '<div class="card-row">' +
+        '<div><strong>' + p.boxCount + ' caja' + (p.boxCount !== 1 ? 's' : '') + '</strong> · $' + fmt(p.pricePerBox) + ' c/u</div>' +
+        '<button class="btn-danger btn-del-purchase" data-id="' + p.id + '" title="Eliminar">✕</button>' +
+        '</div>' +
+        '<div class="card-row">' +
+        '<span class="card-detail">Margen ' + p.markupPercent + '% · Bandeja sugerida: <strong>$' + fmt(p.suggestedTrayPrice) + '</strong></span>' +
+        '<span class="card-detail">' + p.date + '</span>' +
+        '</div></div>'
+    }).join('')
   }
 
   function renderAccounting () {
-    const a = calcAccounting()
-    const container = $('#resumen-contabilidad')
-    container.innerHTML = `
-      <div class="acct-card"><span class="label">Ventas en efectivo</span><span class="value">$${fmt(a.totalCash)}</span></div>
-      <div class="acct-card"><span class="label">Deudores pagados</span><span class="value">$${fmt(a.totalDebtorPaid)}</span></div>
-      <div class="acct-card ${a.totalPendingDebt > 0 ? 'acct-loss' : ''}"><span class="label">Por cobrar (deudores)</span><span class="value">$${fmt(a.totalPendingDebt)}</span></div>
-      <div class="acct-card"><span class="label">Total ganado (recibido)</span><span class="value">$${fmt(a.totalEarned)}</span></div>
-      <div class="acct-card"><span class="label">Inversión en cajas</span><span class="value">$${fmt(a.totalSpent)}</span></div>
-      <div class="acct-card ${a.profit >= 0 ? 'acct-profit' : 'acct-loss'}"><span class="label">Ganancia neta</span><span class="value">$${fmt(a.profit)}</span></div>
-      <div class="acct-card"><span class="label">Cajas compradas</span><span class="value">${a.totalBoxesBought}</span></div>
-      <div class="acct-card"><span class="label">Bandejas compradas</span><span class="value">${a.totalTraysBought}</span></div>
-      <div class="acct-card"><span class="label">Bandejas entregadas</span><span class="value">${a.deliveredTrays}</span></div>
-      <div class="acct-card ${a.remainingTrays < 0 ? 'acct-loss' : ''}"><span class="label">Bandejas restantes</span><span class="value">${a.remainingTrays}</span></div>
-      <div class="acct-card"><span class="label">Total pedidos</span><span class="value">${a.totalOrders}</span></div>
-    `
+    var a = calcAccounting()
+    $('#resumen-contabilidad').innerHTML =
+      '<div class="acct-card"><span class="label">Ventas en efectivo</span><span class="value">$' + fmt(a.totalCash) + '</span></div>' +
+      '<div class="acct-card"><span class="label">Deudores pagados</span><span class="value">$' + fmt(a.totalDebtorPaid) + '</span></div>' +
+      '<div class="acct-card' + (a.totalPendingDebt > 0 ? ' acct-loss' : '') + '"><span class="label">Por cobrar (deudores)</span><span class="value">$' + fmt(a.totalPendingDebt) + '</span></div>' +
+      '<div class="acct-card"><span class="label">Total ganado (recibido)</span><span class="value">$' + fmt(a.totalEarned) + '</span></div>' +
+      '<div class="acct-card"><span class="label">Inversión en cajas</span><span class="value">$' + fmt(a.totalSpent) + '</span></div>' +
+      '<div class="acct-card' + (a.profit >= 0 ? ' acct-profit' : ' acct-loss') + '"><span class="label">Ganancia neta</span><span class="value">$' + fmt(a.profit) + '</span></div>' +
+      '<div class="acct-card"><span class="label">Cajas compradas</span><span class="value">' + a.totalBoxesBought + '</span></div>' +
+      '<div class="acct-card"><span class="label">Bandejas compradas</span><span class="value">' + a.totalTraysBought + '</span></div>' +
+      '<div class="acct-card"><span class="label">Bandejas entregadas</span><span class="value">' + a.deliveredTrays + '</span></div>' +
+      '<div class="acct-card' + (a.remainingTrays < 0 ? ' acct-loss' : '') + '"><span class="label">Bandejas restantes</span><span class="value">' + a.remainingTrays + '</span></div>' +
+      '<div class="acct-card"><span class="label">Total pedidos</span><span class="value">' + a.totalOrders + '</span></div>'
   }
 
   function renderNotes () {
-    const textarea = $('#notas-textarea')
+    var textarea = $('#notas-textarea')
     if (textarea && !textarea._listening) {
       textarea._listening = true
       textarea.value = data.notes || ''
-      textarea.addEventListener('input', () => {
+      textarea.addEventListener('input', function () {
         data.notes = textarea.value
         data.notesUpdatedAt = Date.now()
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
@@ -405,80 +401,72 @@
   }
 
   // ===== Helpers =====
-  function esc (s) {
-    const d = document.createElement('div')
-    d.textContent = s
-    return d.innerHTML
-  }
+  function esc (s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML }
   function fmt (n) { return Number(n).toLocaleString('es-CL') }
 
-  // ===== Tab switching =====
   function switchTab (name) {
-    $$('.tab').forEach(t => t.classList.remove('active'))
-    $$('.tab-content').forEach(c => c.classList.remove('active'))
-    document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active')
+    $$('.tab').forEach(function (t) { t.classList.remove('active') })
+    $$('.tab-content').forEach(function (c) { c.classList.remove('active') })
+    document.querySelector('.tab[data-tab="' + name + '"]').classList.add('active')
     document.getElementById('tab-' + name).classList.add('active')
   }
 
-  // ===== Modal =====
   function showModal (msg, buttons) {
-    const modal = $('#modal')
+    var modal = $('#modal')
     $('#modal-msg').innerHTML = msg
-    const actions = $('#modal-actions')
+    var actions = $('#modal-actions')
     actions.innerHTML = ''
-    buttons.forEach(b => {
-      const btn = document.createElement('button')
+    buttons.forEach(function (b) {
+      var btn = document.createElement('button')
       btn.textContent = b.label
       btn.className = b.className || 'btn-primary'
-      btn.onclick = () => { hideModal(); if (b.action) b.action() }
+      btn.onclick = function () { hideModal(); if (b.action) b.action() }
       actions.appendChild(btn)
     })
     modal.classList.remove('hidden')
   }
   function hideModal () { $('#modal').classList.add('hidden') }
-  $('#modal').addEventListener('click', e => { if (e.target === e.currentTarget) hideModal() })
+  $('#modal').addEventListener('click', function (e) { if (e.target === e.currentTarget) hideModal() })
 
   // ===== Events =====
-  $$('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      $$('.tab').forEach(t => t.classList.remove('active'))
-      $$('.tab-content').forEach(c => c.classList.remove('active'))
+  $$('.tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      $$('.tab').forEach(function (t) { t.classList.remove('active') })
+      $$('.tab-content').forEach(function (c) { c.classList.remove('active') })
       tab.classList.add('active')
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active')
     })
   })
 
-  // New order
-  $('#form-pedido').addEventListener('submit', e => {
+  $('#form-pedido').addEventListener('submit', function (e) {
     e.preventDefault()
-    const name = $('#pedido-name').value.trim()
-    const trays = parseInt($('#pedido-trays').value)
-    const price = parseInt($('#pedido-price').value)
+    var name = $('#pedido-name').value.trim()
+    var trays = parseInt($('#pedido-trays').value)
+    var price = parseInt($('#pedido-price').value)
     if (!name || !trays || !price) return
     addOrder(name, trays, price)
     $('#pedido-name').value = ''
     $('#pedido-trays').value = ''
-    const suggested = getLastSuggestedPrice()
+    var suggested = getLastSuggestedPrice()
     $('#pedido-price').value = suggested || ''
     $('#pedido-name').focus()
   })
 
   function updatePriceSuggestion () {
-    const suggested = getLastSuggestedPrice()
+    var suggested = getLastSuggestedPrice()
     if (suggested && !$('#pedido-price').value) {
       $('#pedido-price').value = suggested
     }
   }
 
-  // Deliver order - ask "Paid or not?"
-  $('#pedidos-pendientes').addEventListener('click', e => {
+  $('#pedidos-pendientes').addEventListener('click', function (e) {
     if (e.target.classList.contains('chk-deliver')) {
       e.preventDefault()
-      const id = e.target.dataset.id
+      var id = e.target.dataset.id
       showModal('¿El cliente pagó?', [
-        { label: '✅ Sí, pagó', className: 'btn-primary', action: () => { deliverOrder(id, true); switchTab('pagados') } },
-        { label: '❌ No pagó', className: 'btn-sm', action: () => { deliverOrder(id, false); switchTab('deudores') } },
-        { label: 'Cancelar', className: 'btn-sm', action: () => {} }
+        { label: '✅ Sí, pagó', className: 'btn-primary', action: function () { deliverOrder(id, true); switchTab('pagados') } },
+        { label: '❌ No pagó', className: 'btn-sm', action: function () { deliverOrder(id, false); switchTab('deudores') } },
+        { label: 'Cancelar', className: 'btn-sm', action: function () {} }
       ])
     }
     if (e.target.classList.contains('btn-edit-order')) {
@@ -487,49 +475,46 @@
     }
   })
 
-  // Pay debtor
-  $('#lista-deudores').addEventListener('click', e => {
+  $('#lista-deudores').addEventListener('click', function (e) {
     if (e.target.classList.contains('chk-pay')) {
       e.preventDefault()
-      const id = e.target.dataset.id
+      var id = e.target.dataset.id
       showModal('¿El deudor pagó?', [
-        { label: '✅ Sí, pagó', className: 'btn-primary', action: () => { markPaid(id); switchTab('pagados') } },
-        { label: 'Cancelar', className: 'btn-sm', action: () => {} }
+        { label: '✅ Sí, pagó', className: 'btn-primary', action: function () { markPaid(id); switchTab('pagados') } },
+        { label: 'Cancelar', className: 'btn-sm', action: function () {} }
       ])
     }
   })
 
-  // Delete
-  document.addEventListener('click', e => {
+  document.addEventListener('click', function (e) {
     if (e.target.classList.contains('btn-del')) {
-      const id = e.target.dataset.id
+      var id = e.target.dataset.id
       showModal('¿Eliminar este pedido?', [
-        { label: 'Eliminar', className: 'btn-danger', action: () => deleteOrder(id) },
-        { label: 'Cancelar', className: 'btn-sm', action: () => {} }
+        { label: 'Eliminar', className: 'btn-danger', action: function () { deleteOrder(id) } },
+        { label: 'Cancelar', className: 'btn-sm', action: function () {} }
       ])
     }
     if (e.target.classList.contains('btn-del-purchase')) {
-      const id = e.target.dataset.id
-      if (confirm('¿Eliminar esta compra?')) deletePurchase(id)
+      var id2 = e.target.dataset.id
+      if (confirm('¿Eliminar esta compra?')) deletePurchase(id2)
     }
   })
 
-  // Purchase form
   function calcSuggestion () {
-    const boxes = parseInt($('#compra-boxes').value) || 0
-    const price = parseInt($('#compra-price').value) || 0
-    const markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
+    var boxes = parseInt($('#compra-boxes').value) || 0
+    var price = parseInt($('#compra-price').value) || 0
+    var markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
     $('#precio-sugerido').textContent = boxes && price ? '$' + fmt(Math.round(price / 6 * (1 + markup / 100))) : '$0'
   }
   $('#compra-boxes').addEventListener('input', calcSuggestion)
   $('#compra-price').addEventListener('input', calcSuggestion)
-  $$('input[name="markup"]').forEach(r => r.addEventListener('change', calcSuggestion))
+  $$('input[name="markup"]').forEach(function (r) { r.addEventListener('change', calcSuggestion) })
 
-  $('#form-compra').addEventListener('submit', e => {
+  $('#form-compra').addEventListener('submit', function (e) {
     e.preventDefault()
-    const boxes = parseInt($('#compra-boxes').value)
-    const price = parseInt($('#compra-price').value)
-    const markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
+    var boxes = parseInt($('#compra-boxes').value)
+    var price = parseInt($('#compra-price').value)
+    var markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
     if (!boxes || !price) return
     addPurchase(boxes, price, markup)
     $('#compra-boxes').value = ''
@@ -538,49 +523,45 @@
     updatePriceSuggestion()
   })
 
-  // Export
-  $('#btn-export').addEventListener('click', () => {
-    const json = JSON.stringify(data, null, 2)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
+  $('#btn-export').addEventListener('click', function () {
+    var json = JSON.stringify(data, null, 2)
+    var blob = new Blob([json], { type: 'application/json' })
+    var url = URL.createObjectURL(blob)
+    var a = document.createElement('a')
     a.href = url
-    a.download = `huevos-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.download = 'huevos-backup-' + new Date().toISOString().slice(0, 10) + '.json'
     a.click()
     URL.revokeObjectURL(url)
   })
 
-  // Import
-  $('#btn-import').addEventListener('click', () => { $('#import-file').click() })
-  $('#import-file').addEventListener('change', e => {
-    const file = e.target.files[0]
+  $('#btn-import').addEventListener('click', function () { $('#import-file').click() })
+  $('#import-file').addEventListener('change', function (e) {
+    var file = e.target.files[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
+    var reader = new FileReader()
+    reader.onload = function (ev) {
       try {
-        const imported = JSON.parse(ev.target.result)
-        let importedData = imported.data || imported
-        const orders = importedData.orders || []
-        const purchases = importedData.purchases || []
+        var imported = JSON.parse(ev.target.result)
+        var importedData = imported.data || imported
+        var orders = importedData.orders || []
+        var purchases = importedData.purchases || []
         if (!orders.length && !purchases.length) { alert('El archivo no contiene datos válidos'); return }
-        const seen = new Set()
-        const mergedOrders = [...orders, ...data.orders].filter(o => {
-          if (seen.has(o.id)) return false
-          seen.add(o.id)
-          return true
+        var seen = {}
+        var merged = []
+        orders.concat(data.orders).forEach(function (o) {
+          if (!seen[o.id]) { seen[o.id] = true; merged.push(o) }
         })
-        const seenP = new Set()
-        const mergedPurchases = [...purchases, ...data.purchases].filter(p => {
-          if (seenP.has(p.id)) return false
-          seenP.add(p.id)
-          return true
+        var seenP = {}
+        var mergedP = []
+        purchases.concat(data.purchases).forEach(function (p) {
+          if (!seenP[p.id]) { seenP[p.id] = true; mergedP.push(p) }
         })
-        data.orders = mergedOrders
-        data.purchases = mergedPurchases
+        data.orders = merged
+        data.purchases = mergedP
         if (importedData.notes) data.notes = importedData.notes
         normalizeOrders()
         saveData()
-        alert(`Importados: ${mergedOrders.length} pedidos, ${mergedPurchases.length} compras`)
+        alert('Importados: ' + merged.length + ' pedidos, ' + mergedP.length + ' compras')
       } catch (err) { alert('Error al leer: ' + err.message) }
     }
     reader.readAsText(file)
@@ -592,4 +573,5 @@
   updatePriceSuggestion()
   renderAll()
   syncFromWorker()
+  setInterval(function () { syncFromWorker() }, 60000)
 })()
