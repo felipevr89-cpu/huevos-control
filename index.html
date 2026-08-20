@@ -26,8 +26,8 @@
   </header>
 
   <nav id="tabs">
-    <button class="tab active" data-tab="pedidos">📋 Pedidos</button>
-    <button class="tab" data-tab="deudores">💰 Deudores</button>
+    <button class="tab active" data-tab="pedidos">📋 Pedidos<span class="tab-badge" id="badge-pedidos"></span></button>
+    <button class="tab" data-tab="deudores">💰 Deudores<span class="tab-badge" id="badge-deudores"></span></button>
     <button class="tab" data-tab="pagados">✅ Pagados</button>
     <button class="tab" data-tab="compras">📦 Compras</button>
     <button class="tab" data-tab="contabilidad">📊 Cta.</button>
@@ -39,6 +39,7 @@
     <section id="tab-pedidos" class="tab-content active">
       <form id="form-pedido">
         <h2>Nuevo Pedido</h2>
+        <button type="button" class="btn-reuse" id="btn-reuse">↺ Reutilizar último pedido</button>
         <div class="field">
           <label for="pedido-name">Nombre del cliente</label>
           <input type="text" id="pedido-name" required>
@@ -59,6 +60,10 @@
         </div>
         <button type="submit" class="btn-primary">Agregar Pedido</button>
       </form>
+      <div class="field">
+        <label for="buscar-pedido">Buscar cliente</label>
+        <input type="text" id="buscar-pedido" placeholder="Buscar por nombre..." autocomplete="off">
+      </div>
       <h2>Pendientes</h2>
       <div id="pedidos-pendientes" class="list"></div>
     </section>
@@ -130,6 +135,11 @@
     <p id="modal-msg"></p>
     <div id="modal-actions" class="modal-actions"></div>
   </div>
+</div>
+
+<div id="toast" class="toast hidden">
+  <span id="toast-msg"></span>
+  <button id="toast-undo">Deshacer</button>
 </div>
 
 <script src="app.js"></script>

@@ -190,10 +190,17 @@
   }
 
   function deleteOrder (id) {
+    var order = data.orders.find(o => o.id === id)
+    if (!order) return
     if (!data.deleted) data.deleted = []
     data.deleted.push({ id, type: 'order', at: Date.now() })
     data.orders = data.orders.filter(o => o.id !== id)
     saveData()
+    showToast('Pedido de ' + order.name + ' eliminado', function () {
+      data.deleted = data.deleted.filter(d => d.id !== id)
+      data.orders.push(order)
+      saveData()
+    })
   }
 
   function showEditModal (id) {
@@ -248,14 +255,24 @@
   }
 
   function deletePurchase (id) {
+    var purchase = data.purchases.find(p => p.id === id)
+    if (!purchase) return
     if (!data.deleted) data.deleted = []
     data.deleted.push({ id, type: 'purchase', at: Date.now() })
     data.purchases = data.purchases.filter(p => p.id !== id)
     saveData()
+    showToast('Compra eliminada', function () {
+      data.deleted = data.deleted.filter(d => d.id !== id)
+      data.purchases.push(purchase)
+      saveData()
+    })
   }
 
   // ===== Queries =====
-  function getPending () { return data.orders.filter(o => o.status === 'pending') }
+  var searchTerm = ''
+  function getPending () {
+    return data.orders.filter(o => o.status === 'pending' && (!searchTerm || o.name.toLowerCase().indexOf(searchTerm.toLowerCase()) !== -1))
+  }
   function getDebtors () { return data.orders.filter(o => o.payment === 'debtor' && !o.paid) }
   function getDelivered () { return data.orders.filter(o => o.status === 'delivered') }
   function getPaidOrders () { return getDelivered().filter(o => o.paid) }
@@ -297,13 +314,25 @@
     renderPurchases()
     renderAccounting()
     renderNotes()
+    renderBadges()
+  }
+
+  function renderBadges () {
+    var pend = $('#badge-pedidos')
+    var debt = $('#badge-deudores')
+    var pendingCount = getPending().length
+    var debtorCount = getDebtors().length
+    if (pend) { pend.textContent = pendingCount ? pendingCount : ''; pend.classList.toggle('badge-show', pendingCount > 0) }
+    if (debt) { debt.textContent = debtorCount ? debtorCount : ''; debt.classList.toggle('badge-show', debtorCount > 0) }
   }
 
   function renderPending () {
     var container = $('#pedidos-pendientes')
     var list = getPending()
     if (!list.length) {
-      container.innerHTML = '<div class="empty-msg">No hay pedidos pendientes</div>'
+      container.innerHTML = searchTerm
+        ? '<div class="empty-msg">No hay pedidos para "<strong>' + esc(searchTerm) + '</strong>"</div>'
+        : '<div class="empty-msg">No hay pedidos pendientes</div>'
       return
     }
     container.innerHTML = list.map(function (o) {
@@ -463,6 +492,30 @@
   function hideModal () { $('#modal').classList.add('hidden'); $('#modal').classList.remove('modal-sheet') }
   $('#modal').addEventListener('click', function (e) { if (e.target === e.currentTarget) hideModal() })
 
+  var toastTimer = null
+  var toastUndo = null
+  function showToast (msg, undoFn) {
+    var el = $('#toast')
+    $('#toast-msg').textContent = msg
+    toastUndo = undoFn || null
+    el.classList.remove('hidden')
+    if (toastTimer) clearTimeout(toastTimer)
+    toastTimer = setTimeout(hideToast, 5000)
+  }
+  function hideToast () {
+    $('#toast').classList.add('hidden')
+    toastUndo = null
+  }
+  $('#toast-undo').addEventListener('click', function () {
+    if (toastUndo) {
+      var fn = toastUndo
+      hideToast()
+      fn()
+    } else {
+      hideToast()
+    }
+  })
+
   // ===== Events =====
   $$('.tab').forEach(function (tab) {
     tab.addEventListener('click', function () {
@@ -495,6 +548,21 @@
       $('#pedido-price').value = suggested
     }
   }
+
+  $('#btn-reuse').addEventListener('click', function () {
+    var last = data.orders[data.orders.length - 1]
+    if (!last) { alert('No hay pedidos anteriores'); return }
+    $('#pedido-name').value = last.name || ''
+    $('#pedido-trays').value = last.trayCount || ''
+    $('#pedido-price').value = last.pricePerTray || ''
+    $('#pedido-date').value = last.deliveryDate || ''
+    $('#pedido-name').focus()
+  })
+
+  $('#buscar-pedido').addEventListener('input', function () {
+    searchTerm = this.value.trim()
+    renderPending()
+  })
 
   $('#pedidos-pendientes').addEventListener('click', function (e) {
     if (e.target.classList.contains('chk-deliver')) {

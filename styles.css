@@ -105,6 +105,13 @@ header h1 { font-size: 1.2rem; font-weight: 700; }
   font-weight: 600;
 }
 .tab:active { background: var(--stone-100); }
+.tab-badge {
+  display: inline-block; min-width: 18px; height: 18px; line-height: 18px;
+  margin-left: 4px; padding: 0 5px; border-radius: 9px;
+  background: var(--red-500); color: #fff; font-size: .65rem; font-weight: 700;
+  vertical-align: middle; text-align: center;
+}
+.tab-badge:empty { display: none; }
 
 main { flex: 1; padding: 16px; padding-bottom: 100px; }
 
@@ -147,6 +154,12 @@ input:focus { border-color: var(--amber-400); }
   cursor: pointer; transition: background .15s;
 }
 .btn-primary:active { background: var(--amber-600); }
+.btn-reuse {
+  width: 100%; padding: 10px; background: var(--stone-100); color: var(--stone-600);
+  border: 2px dashed var(--stone-300); border-radius: 8px; font-size: .85rem;
+  font-weight: 600; cursor: pointer; margin-bottom: 12px;
+}
+.btn-reuse:active { background: var(--stone-200); color: var(--stone-700); }
 .btn-danger {
   background: var(--red-500); color: #fff; border: none;
   border-radius: 8px; padding: 6px 12px; font-size: .8rem; cursor: pointer;
@@ -312,6 +325,22 @@ input:focus { border-color: var(--amber-400); }
   border-radius: 10px; color: var(--stone-600);
 }
 .sheet-actions .btn-sm:active { background: var(--stone-300); }
+
+/* Toast */
+.toast {
+  position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%);
+  background: var(--stone-800); color: #fff; border-radius: 10px;
+  padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+  z-index: 200; max-width: 90%; box-shadow: var(--shadow-lg);
+  font-size: .85rem;
+}
+.toast.hidden { display: none; }
+#toast-undo {
+  background: var(--amber-500); color: #fff; border: none;
+  border-radius: 8px; padding: 8px 14px; font-size: .8rem; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+}
+#toast-undo:active { background: var(--amber-600); }
 
 /* Accounting */
 .accounting { display: flex; flex-direction: column; gap: 12px; }
