@@ -220,8 +220,8 @@
       '<input type="date" id="edit-delivery" value="' + (order.deliveryDate || '') + '">' +
       '</div>' +
       '<div class="sheet-actions">' +
+      '<button class="btn-primary" id="edit-save">Guardar</button>' +
       '<button class="btn-sm" id="edit-cancel">Cancelar</button>' +
-      '<button class="btn-primary" id="edit-save">Guardar cambios</button>' +
       '</div>'
     modal.classList.remove('hidden')
     $('#edit-close').onclick = hideModal

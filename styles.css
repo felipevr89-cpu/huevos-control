@@ -277,6 +277,7 @@ input:focus { border-color: var(--amber-400); }
   padding: 0; text-align: left;
   animation: sheet-up .25s ease;
 }
+.modal.modal-sheet .modal-actions { display: flex; flex-direction: column; }
 @keyframes sheet-up {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
@@ -292,22 +293,25 @@ input:focus { border-color: var(--amber-400); }
   cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 .sheet-close:active { background: var(--stone-200); }
-.sheet-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; }
-.sheet-body label { font-size: .78rem; font-weight: 600; color: var(--stone-600); margin-top: 10px; }
+.sheet-body { padding: 16px 20px 4px; display: flex; flex-direction: column; gap: 2px; }
+.sheet-body label { font-size: .78rem; font-weight: 600; color: var(--stone-600); margin-top: 12px; }
 .sheet-body label:first-child { margin-top: 0; }
-.sheet-body input { background: var(--stone-50); font-size: 1.05rem; }
+.sheet-body input { background: var(--stone-50); font-size: 1rem; width: 100%; }
 .sheet-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.sheet-field { display: flex; flex-direction: column; }
+.sheet-field { display: flex; flex-direction: column; min-width: 0; }
 .sheet-actions {
-  display: flex; gap: 10px; padding: 12px 20px 20px;
-  border-top: 1px solid var(--stone-100); margin-top: 8px;
+  display: flex; gap: 10px; padding: 16px 20px 22px;
+  border-top: 1px solid var(--stone-100); margin-top: 14px;
 }
+.sheet-actions .btn-primary {
+  flex: 1; width: auto; border-radius: 10px; font-size: .95rem;
+}
+.sheet-actions .btn-primary:active { background: var(--amber-600); }
 .sheet-actions .btn-sm {
-  flex: 0 0 auto; padding: 12px 20px; font-size: .9rem; font-weight: 600;
+  flex: 1; width: auto; padding: 12px 10px; font-size: .9rem; font-weight: 600;
   border-radius: 10px; color: var(--stone-600);
 }
-.sheet-actions .btn-primary { flex: 1; border-radius: 10px; font-size: .95rem; }
-.sheet-actions .btn-primary:active { background: var(--amber-600); }
+.sheet-actions .btn-sm:active { background: var(--stone-300); }
 
 /* Accounting */
 .accounting { display: flex; flex-direction: column; gap: 12px; }
