@@ -16,3 +16,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ced4d1f3c6a941b5b63805c182ed180f
           command: pages deploy . --project-name huevos-app --branch main
+          commitDirty: true
