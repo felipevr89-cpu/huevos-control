@@ -138,23 +138,25 @@
   }
 
   // ===== Orders =====
-  function addOrder (name, trayCount, pricePerTray) {
+  function addOrder (name, trayCount, pricePerTray, deliveryDate) {
     data.orders.push({
       id: genId(), name: name.trim(), trayCount, pricePerTray,
       total: trayCount * pricePerTray, date: today(),
+      deliveryDate: deliveryDate || null,
       status: 'pending', payment: null, paid: false, paidDate: null,
       updatedAt: Date.now()
     })
     saveData()
   }
 
-  function editOrder (id, name, trayCount, pricePerTray) {
+  function editOrder (id, name, trayCount, pricePerTray, deliveryDate) {
     const order = data.orders.find(o => o.id === id)
     if (!order) return
     order.name = name.trim()
     order.trayCount = trayCount
     order.pricePerTray = pricePerTray
     order.total = trayCount * pricePerTray
+    order.deliveryDate = deliveryDate || null
     order.updatedAt = Date.now()
     saveData()
   }
@@ -196,6 +198,7 @@
       '<label>Nombre</label><input type="text" id="edit-name" value="' + esc(order.name) + '">' +
       '<label>Bandejas</label><input type="number" id="edit-trays" value="' + order.trayCount + '" min="1">' +
       '<label>Precio por bandeja ($)</label><input type="number" id="edit-price" value="' + order.pricePerTray + '" min="1" step="100">' +
+      '<label>Fecha de entrega</label><input type="date" id="edit-delivery" value="' + (order.deliveryDate || '') + '">' +
       '</div>' +
       '<button class="btn-primary" id="edit-save">Guardar</button>' +
       '<button class="btn-sm" id="edit-cancel">Cancelar</button>'
@@ -204,21 +207,22 @@
       var n = $('#edit-name').value.trim()
       var t = parseInt($('#edit-trays').value)
       var p = parseInt($('#edit-price').value)
-      if (n && t && p) { editOrder(id, n, t, p); hideModal() }
+      var dd = $('#edit-delivery').value
+      if (n && t && p) { editOrder(id, n, t, p, dd); hideModal() }
     }
     $('#edit-cancel').onclick = hideModal
   }
 
   // ===== Purchases =====
-  function addPurchase (boxCount, pricePerBox, markupPercent) {
+  function addPurchase (boxCount, pricePerBox, markupPercent, sellingPrice) {
     var trayCost = pricePerBox / 6
     var suggestedTrayPrice = Math.round(trayCost * (1 + markupPercent / 100))
     data.purchases.push({
       id: genId(), boxCount, pricePerBox, markupPercent,
-      suggestedTrayPrice, sellingPrice: suggestedTrayPrice, date: today()
+      suggestedTrayPrice, sellingPrice: sellingPrice || suggestedTrayPrice, date: today()
     })
     saveData()
-    return suggestedTrayPrice
+    return sellingPrice || suggestedTrayPrice
   }
 
   function deletePurchase (id) {
@@ -233,7 +237,8 @@
   function getPaidOrders () { return getDelivered().filter(o => o.paid) }
   function getLastSuggestedPrice () {
     if (!data.purchases.length) return null
-    return data.purchases[data.purchases.length - 1].suggestedTrayPrice
+    var last = data.purchases[data.purchases.length - 1]
+    return last.sellingPrice || last.suggestedTrayPrice
   }
 
   // ===== Accounting =====
@@ -277,12 +282,17 @@
       return
     }
     container.innerHTML = list.map(function (o) {
+      var deliveryLabel = ''
+      if (o.deliveryDate) {
+        var d = o.deliveryDate.split('-')
+        deliveryLabel = d[2] + '/' + d[1] + '/' + d[0]
+      }
       return '<div class="card" data-id="' + o.id + '">' +
         '<input type="checkbox" class="checkbox-lg chk-deliver" data-id="' + o.id + '">' +
         '<div class="card-body">' +
         '<div class="card-name">' + esc(o.name) + '</div>' +
         '<div class="card-detail">' + o.trayCount + ' bandeja' + (o.trayCount !== 1 ? 's' : '') + ' x $' + fmt(o.pricePerTray) + ' · ' + o.date + '</div>' +
-        (o.deliveryDate ? '<span class="badge-delivery">Entrega: ' + esc(o.deliveryDate) + '</span>' : '') +
+        (deliveryLabel ? '<span class="badge-delivery">Entrega: ' + deliveryLabel + '</span>' : '') +
         '</div>' +
         '<div class="card-amount">$' + fmt(o.total) + '</div>' +
         '<div class="card-actions">' +
@@ -364,7 +374,7 @@
         '<button class="btn-danger btn-del-purchase" data-id="' + p.id + '" title="Eliminar">✕</button>' +
         '</div>' +
         '<div class="card-row">' +
-        '<span class="card-detail">Margen ' + p.markupPercent + '% · Bandeja sugerida: <strong>$' + fmt(p.suggestedTrayPrice) + '</strong></span>' +
+        '<span class="card-detail">Margen ' + p.markupPercent + '% · Sugerida: $' + fmt(p.suggestedTrayPrice) + ' · <strong>Mi precio: $' + fmt(p.sellingPrice) + '</strong></span>' +
         '<span class="card-detail">' + p.date + '</span>' +
         '</div></div>'
     }).join('')
@@ -443,10 +453,12 @@
     var name = $('#pedido-name').value.trim()
     var trays = parseInt($('#pedido-trays').value)
     var price = parseInt($('#pedido-price').value)
+    var deliveryDate = $('#pedido-date').value || null
     if (!name || !trays || !price) return
-    addOrder(name, trays, price)
+    addOrder(name, trays, price, deliveryDate)
     $('#pedido-name').value = ''
     $('#pedido-trays').value = ''
+    $('#pedido-date').value = ''
     var suggested = getLastSuggestedPrice()
     $('#pedido-price').value = suggested || ''
     $('#pedido-name').focus()
@@ -504,7 +516,8 @@
     var boxes = parseInt($('#compra-boxes').value) || 0
     var price = parseInt($('#compra-price').value) || 0
     var markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
-    $('#precio-sugerido').textContent = boxes && price ? '$' + fmt(Math.round(price / 6 * (1 + markup / 100))) : '$0'
+    var suggested = boxes && price ? Math.round(price / 6 * (1 + markup / 100)) : 0
+    $('#precio-sugerido').textContent = suggested ? '$' + fmt(suggested) : '$0'
   }
   $('#compra-boxes').addEventListener('input', calcSuggestion)
   $('#compra-price').addEventListener('input', calcSuggestion)
@@ -515,10 +528,12 @@
     var boxes = parseInt($('#compra-boxes').value)
     var price = parseInt($('#compra-price').value)
     var markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
-    if (!boxes || !price) return
-    addPurchase(boxes, price, markup)
+    var selling = parseInt($('#compra-selling').value)
+    if (!boxes || !price || !selling) return
+    addPurchase(boxes, price, markup, selling)
     $('#compra-boxes').value = ''
     $('#compra-price').value = ''
+    $('#compra-selling').value = ''
     $('#precio-sugerido').textContent = '$0'
     updatePriceSuggestion()
   })
