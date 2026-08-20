@@ -214,7 +214,7 @@
       '<div class="sheet-field"><label for="edit-trays">Bandejas</label>' +
       '<input type="number" id="edit-trays" value="' + order.trayCount + '" min="1" inputmode="numeric"></div>' +
       '<div class="sheet-field"><label for="edit-price">Precio ($)</label>' +
-      '<input type="number" id="edit-price" value="' + order.pricePerTray + '" min="1" step="100" inputmode="numeric"></div>' +
+      '<input type="number" id="edit-price" value="' + order.pricePerTray + '" min="1" inputmode="numeric"></div>' +
       '</div>' +
       '<label for="edit-delivery">Fecha de entrega (opcional)</label>' +
       '<input type="date" id="edit-delivery" value="' + (order.deliveryDate || '') + '">' +
