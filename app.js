@@ -583,6 +583,69 @@
     URL.revokeObjectURL(url)
   })
 
+  // Import
+  $('#btn-import').addEventListener('click', () => {
+    $('#import-file').click()
+  })
+
+  $('#import-file').addEventListener('change', e => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const imported = JSON.parse(ev.target.result)
+        let importedData = imported
+        if (imported.data && imported.data.orders) {
+          importedData = imported.data
+        }
+        const orders = importedData.orders || []
+        const purchases = importedData.purchases || []
+        if (!orders.length && !purchases.length) {
+          alert('El archivo no contiene datos válidos')
+          return
+        }
+        const mergedOrders = [...data.orders, ...orders]
+        const mergedPurchases = [...data.purchases, ...purchases]
+        const seenOrders = new Set()
+        const uniqueOrders = mergedOrders.filter(o => {
+          if (seenOrders.has(o.id)) return false
+          seenOrders.add(o.id)
+          return true
+        })
+        const seenPurchases = new Set()
+        const uniquePurchases = mergedPurchases.filter(p => {
+          if (seenPurchases.has(p.id)) return false
+          seenPurchases.add(p.id)
+          return true
+        })
+        uniqueOrders.forEach(o => {
+          if (!o.status) {
+            if (o.paid || o.payment === 'paid') {
+              o.status = 'delivered'
+            } else if (o.payment === 'debtor') {
+              o.status = 'delivered'
+            } else {
+              o.status = 'pending'
+            }
+          }
+          if (o.payment === 'paid') o.payment = 'cash'
+          if (!o.total && o.trayCount && o.pricePerTray) {
+            o.total = o.trayCount * o.pricePerTray
+          }
+        })
+        data.orders = uniqueOrders
+        data.purchases = uniquePurchases
+        saveData()
+        alert(`Importados: ${uniqueOrders.length} pedidos, ${uniquePurchases.length} compras`)
+      } catch (err) {
+        alert('Error al leer el archivo: ' + err.message)
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  })
+
   // ===== Init =====
   updatePriceSuggestion()
   renderAll()
