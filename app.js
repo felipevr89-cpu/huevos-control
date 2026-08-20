@@ -1,18 +1,22 @@
 ;(() => {
   const STORAGE_KEY = 'huevos_data'
+  const SYNC_KEY = 'huevos-felipe'
+  const SYNC_API = 'https://huevos-sync.felipe-v-r-89.workers.dev/api/sync'
 
   let data = loadData()
+  let lastSync = 0
 
   function loadData () {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) return JSON.parse(raw)
     } catch (_) {}
-    return { orders: [], purchases: [] }
+    return { orders: [], purchases: [], notes: '' }
   }
 
   function saveData () {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    syncToWorker()
     renderAll()
   }
 
@@ -20,8 +24,103 @@
 
   function today () { return new Date().toLocaleDateString('es-CL') }
 
-  // ---- Orders ----
-  function addOrder (name, trayCount, pricePerTray, deliveryDate) {
+  function daysSince (dateStr) {
+    if (!dateStr) return 999
+    const parts = dateStr.split('-')
+    if (parts.length !== 3) return 999
+    const d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]))
+    const now = new Date()
+    const diff = Math.floor((now - d) / (1000 * 60 * 60 * 24))
+    return diff
+  }
+
+  // ===== SYNC =====
+  async function syncFromWorker () {
+    try {
+      const res = await fetch(SYNC_API, { headers: { 'X-Sync-Key': SYNC_KEY } })
+      if (!res.ok) return
+      const json = await res.json()
+      const remote = json.data || {}
+      const deletedIds = new Set((remote.deleted || []).map(d => d.id))
+      const remoteOrders = (remote.orders || []).filter(o => !deletedIds.has(o.id))
+      const remotePurchases = remote.purchases || []
+      const remoteNotes = remote.notes || ''
+      const remoteNotesUpdated = remote.notesUpdatedAt || 0
+
+      if (remoteOrders.length > 0 || remotePurchases.length > 0) {
+        const localIds = new Set(data.orders.map(o => o.id))
+        remoteOrders.forEach(ro => {
+          if (!localIds.has(ro.id)) {
+            data.orders.push(ro)
+          } else {
+            const local = data.orders.find(o => o.id === ro.id)
+            if (local && (ro.updatedAt || 0) > (local.updatedAt || 0)) {
+              Object.assign(local, ro)
+            }
+          }
+        })
+        const localPurIds = new Set(data.purchases.map(p => p.id))
+        remotePurchases.forEach(rp => {
+          if (!localPurIds.has(rp.id)) data.purchases.push(rp)
+        })
+        data.orders = data.orders.filter(o => !deletedIds.has(o.id))
+      }
+
+      if (remoteNotes && (!data.notes || remoteNotesUpdated > (data.notesUpdatedAt || 0))) {
+        data.notes = remoteNotes
+        data.notesUpdatedAt = remoteNotesUpdated
+      }
+
+      normalizeOrders()
+      lastSync = Date.now()
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    } catch (e) { /* offline, skip */ }
+  }
+
+  async function syncToWorker () {
+    try {
+      const payload = {
+        data: {
+          orders: data.orders,
+          purchases: data.purchases,
+          notes: data.notes || '',
+          notesUpdatedAt: data.notesUpdatedAt || Date.now(),
+          deleted: data.deleted || []
+        }
+      }
+      await fetch(SYNC_API, {
+        method: 'POST',
+        headers: {
+          'X-Sync-Key': SYNC_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      })
+      lastSync = Date.now()
+    } catch (e) { /* offline, skip */ }
+  }
+
+  function normalizeOrders () {
+    data.orders.forEach(o => {
+      if (!o.status) {
+        if (o.paid || o.payment === 'paid') {
+          o.status = 'delivered'
+          if (o.payment === 'paid') o.payment = 'cash'
+        } else if (o.payment === 'debtor') {
+          o.status = 'delivered'
+        } else {
+          o.status = 'pending'
+        }
+      }
+      if (o.payment === 'paid') o.payment = 'cash'
+      if (!o.total && o.trayCount && o.pricePerTray) {
+        o.total = o.trayCount * o.pricePerTray
+      }
+    })
+  }
+
+  // ===== Orders =====
+  function addOrder (name, trayCount, pricePerTray) {
     data.orders.push({
       id: genId(),
       name: name.trim(),
@@ -29,22 +128,34 @@
       pricePerTray,
       total: trayCount * pricePerTray,
       date: today(),
-      deliveryDate: deliveryDate || null,
       status: 'pending',
       payment: null,
       paid: false,
-      paidDate: null
+      paidDate: null,
+      updatedAt: Date.now()
     })
     saveData()
   }
 
-  function deliverOrder (id, paymentMethod) {
+  function editOrder (id, name, trayCount, pricePerTray) {
+    const order = data.orders.find(o => o.id === id)
+    if (!order) return
+    order.name = name.trim()
+    order.trayCount = trayCount
+    order.pricePerTray = pricePerTray
+    order.total = trayCount * pricePerTray
+    order.updatedAt = Date.now()
+    saveData()
+  }
+
+  function deliverOrder (id, paid) {
     const order = data.orders.find(o => o.id === id)
     if (!order) return
     order.status = 'delivered'
-    order.payment = paymentMethod
-    order.paid = paymentMethod === 'cash'
-    order.paidDate = paymentMethod === 'cash' ? today() : null
+    order.payment = paid ? 'cash' : 'debtor'
+    order.paid = paid
+    order.paidDate = paid ? today() : null
+    order.updatedAt = Date.now()
     saveData()
   }
 
@@ -53,25 +164,51 @@
     if (!order) return
     order.paid = true
     order.paidDate = today()
+    order.updatedAt = Date.now()
     saveData()
   }
 
   function deleteOrder (id) {
+    if (!data.deleted) data.deleted = []
+    data.deleted.push({ id, type: 'order', at: Date.now() })
     data.orders = data.orders.filter(o => o.id !== id)
     saveData()
   }
 
-  function editOrder (id, newData) {
+  function showEditModal (id) {
     const order = data.orders.find(o => o.id === id)
     if (!order) return
-    if (newData.name !== undefined) order.name = newData.name.trim()
-    if (newData.trayCount !== undefined) { order.trayCount = newData.trayCount; order.total = order.trayCount * order.pricePerTray }
-    if (newData.pricePerTray !== undefined) { order.pricePerTray = newData.pricePerTray; order.total = order.trayCount * order.pricePerTray }
-    if (newData.deliveryDate !== undefined) order.deliveryDate = newData.deliveryDate
-    saveData()
+    const modal = $('#modal')
+    $('#modal-msg').innerHTML = `Editar pedido de <strong>${esc(order.name)}</strong>`
+    const actions = $('#modal-actions')
+    actions.innerHTML = `
+      <div class="modal-edit-row">
+        <label>Nombre</label>
+        <input type="text" id="edit-name" value="${esc(order.name)}">
+        <label>Bandejas</label>
+        <input type="number" id="edit-trays" value="${order.trayCount}" min="1">
+        <label>Precio por bandeja ($)</label>
+        <input type="number" id="edit-price" value="${order.pricePerTray}" min="1" step="100">
+      </div>
+    `
+    actions.innerHTML += `
+      <button class="btn-primary" id="edit-save">Guardar</button>
+      <button class="btn-sm" id="edit-cancel">Cancelar</button>
+    `
+    modal.classList.remove('hidden')
+    $('#edit-save').onclick = () => {
+      const n = $('#edit-name').value.trim()
+      const t = parseInt($('#edit-trays').value)
+      const p = parseInt($('#edit-price').value)
+      if (n && t && p) {
+        editOrder(id, n, t, p)
+        hideModal()
+      }
+    }
+    $('#edit-cancel').onclick = hideModal
   }
 
-  // ---- Purchases ----
+  // ===== Purchases =====
   function addPurchase (boxCount, pricePerBox, markupPercent) {
     const trayCost = pricePerBox / 6
     const suggestedTrayPrice = Math.round(trayCost * (1 + markupPercent / 100))
@@ -81,6 +218,7 @@
       pricePerBox,
       markupPercent,
       suggestedTrayPrice,
+      sellingPrice: suggestedTrayPrice,
       date: today()
     })
     saveData()
@@ -92,29 +230,30 @@
     saveData()
   }
 
-  // ---- Queries ----
+  // ===== Queries =====
   function getPending () { return data.orders.filter(o => o.status === 'pending') }
   function getDebtors () { return data.orders.filter(o => o.payment === 'debtor' && !o.paid) }
-  function getPaidOrders () { return data.orders.filter(o => o.paid) }
+  function getPaidOrders () { return data.orders.filter(o => o.paid || (o.status === 'delivered' && o.payment === 'cash')) }
+  function getDelivered () { return data.orders.filter(o => o.status === 'delivered') }
   function getLastSuggestedPrice () {
     if (!data.purchases.length) return null
     return data.purchases[data.purchases.length - 1].suggestedTrayPrice
   }
 
-  // ---- Accounting ----
+  // ===== Accounting =====
   function calcAccounting () {
-    const paidOrders = data.orders.filter(o => o.paid)
+    const delivered = getDelivered()
+    const paidOrders = delivered.filter(o => o.paid)
     const totalCash = paidOrders.filter(o => o.payment === 'cash').reduce((s, o) => s + o.total, 0)
     const totalDebtorPaid = paidOrders.filter(o => o.payment === 'debtor').reduce((s, o) => s + o.total, 0)
-    const totalPendingDebt = data.orders.filter(o => o.payment === 'debtor' && !o.paid).reduce((s, o) => s + o.total, 0)
+    const totalPendingDebt = getDebtors().reduce((s, o) => s + o.total, 0)
     const totalEarned = totalCash + totalDebtorPaid
     const totalBoxesBought = data.purchases.reduce((s, p) => s + p.boxCount, 0)
     const totalTraysBought = totalBoxesBought * 6
     const totalSpent = data.purchases.reduce((s, p) => s + p.boxCount * p.pricePerBox, 0)
     const profit = totalEarned - totalSpent
-    const deliveredTrays = data.orders.filter(o => o.status === 'delivered').reduce((s, o) => s + o.trayCount, 0)
+    const deliveredTrays = delivered.reduce((s, o) => s + o.trayCount, 0)
     const remainingTrays = totalTraysBought - deliveredTrays
-
     return { totalCash, totalDebtorPaid, totalPendingDebt, totalEarned, totalBoxesBought, totalTraysBought, totalSpent, profit, deliveredTrays, remainingTrays, totalOrders: data.orders.length }
   }
 
@@ -124,20 +263,16 @@
 
   function renderAll () {
     renderPending()
-    renderFuture()
     renderDebtors()
     renderPaid()
     renderPurchases()
     renderAccounting()
+    renderNotes()
   }
 
   function renderPending () {
     const container = $('#pedidos-pendientes')
-    const todayStr = today()
-    const list = getPending().filter(o => {
-      if (!o.deliveryDate) return true
-      return o.deliveryDate <= todayStr
-    })
+    const list = getPending()
     if (!list.length) {
       container.innerHTML = '<div class="empty-msg">No hay pedidos pendientes</div>'
       return
@@ -147,37 +282,14 @@
         <input type="checkbox" class="checkbox-lg chk-deliver" data-id="${o.id}">
         <div class="card-body">
           <div class="card-name">${esc(o.name)}</div>
-          <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} x $${fmt(o.pricePerTray)}</div>
+          <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} x $${fmt(o.pricePerTray)} · ${o.date}</div>
+          ${o.deliveryDate ? `<span class="badge-delivery">Entrega: ${esc(o.deliveryDate)}</span>` : ''}
         </div>
         <div class="card-amount">$${fmt(o.total)}</div>
-        <button class="btn-edit btn-edit-order" data-id="${o.id}" title="Editar">✏️</button>
-        <button class="btn-danger btn-del" data-id="${o.id}" title="Eliminar">✕</button>
-      </div>
-    `).join('')
-  }
-
-  function renderFuture () {
-    const title = $('#proximos-title')
-    const container = $('#pedidos-proximos')
-    const todayStr = today()
-    const list = getPending().filter(o => o.deliveryDate && o.deliveryDate > todayStr).sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
-    if (!list.length) {
-      if (title) title.classList.add('hidden')
-      if (container) container.innerHTML = ''
-      return
-    }
-    if (title) title.classList.remove('hidden')
-    if (container) container.innerHTML = list.map(o => `
-      <div class="card" data-id="${o.id}">
-        <input type="checkbox" class="checkbox-lg chk-deliver" data-id="${o.id}">
-        <div class="card-body">
-          <div class="card-name">${esc(o.name)}</div>
-          <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} x $${fmt(o.pricePerTray)}</div>
-          <span class="badge-delivery">Entrega: ${esc(o.deliveryDate)}</span>
+        <div class="card-actions">
+          <button class="btn-edit btn-edit-order" data-id="${o.id}" title="Editar">✏️</button>
+          <button class="btn-danger btn-del" data-id="${o.id}" title="Eliminar">✕</button>
         </div>
-        <div class="card-amount">$${fmt(o.total)}</div>
-        <button class="btn-edit btn-edit-order" data-id="${o.id}" title="Editar">✏️</button>
-        <button class="btn-danger btn-del" data-id="${o.id}" title="Eliminar">✕</button>
       </div>
     `).join('')
   }
@@ -185,25 +297,42 @@
   function renderDebtors () {
     const container = $('#lista-deudores')
     const list = getDebtors()
+    const oldDebtors = list.filter(o => daysSince(o.date) > 7)
+    let html = ''
+    if (oldDebtors.length > 0) {
+      html += `<div class="alert-banner">
+        <div class="alert-banner-title">⚠️ Deudores con más de 7 días</div>
+        <ul class="alert-banner-list">
+          ${oldDebtors.map(o => `<li>${esc(o.name)} — $${fmt(o.total)} (${daysSince(o.date)} días)</li>`).join('')}
+        </ul>
+      </div>`
+    }
     if (!list.length) {
-      container.innerHTML = '<div class="empty-msg">No hay deudores 🎉</div>'
+      html += '<div class="empty-msg">No hay deudores</div>'
+      container.innerHTML = html
       return
     }
-    container.innerHTML = list.map(o => `
-      <div class="card" data-id="${o.id}">
-        <input type="checkbox" class="checkbox-lg chk-pay" data-id="${o.id}">
-        <div class="card-body">
-          <div class="card-name">${esc(o.name)}</div>
-          <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} · ${o.date}</div>
+    html += list.map(o => {
+      const days = daysSince(o.date)
+      const overdue = days > 7 ? ' overdue' : ''
+      return `
+        <div class="card${overdue}" data-id="${o.id}">
+          <input type="checkbox" class="checkbox-lg chk-pay" data-id="${o.id}">
+          <div class="card-body">
+            <div class="card-name">${esc(o.name)}</div>
+            <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} · $${fmt(o.total)} · ${o.date}</div>
+            ${days > 7 ? `<span class="badge-overdue">${days} días sin pagar</span>` : ''}
+          </div>
+          <div class="card-amount">$${fmt(o.total)}</div>
         </div>
-        <div class="card-amount">$${fmt(o.total)}</div>
-      </div>
-    `).join('')
+      `
+    }).join('')
+    container.innerHTML = html
   }
 
   function renderPaid () {
     const container = $('#lista-pagados')
-    const list = getPaidOrders()
+    const list = getDelivered().filter(o => o.paid)
     if (!list.length) {
       container.innerHTML = '<div class="empty-msg">No hay pagos registrados</div>'
       return
@@ -215,11 +344,10 @@
           <div class="card-detail">
             ${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} · $${fmt(o.total)}
             <span class="card-status ${o.payment}">${o.payment === 'cash' ? 'Efectivo' : 'Deudor'}</span>
-            · ${o.paidDate}
+            · ${o.paidDate || o.date}
           </div>
         </div>
         <div class="card-amount">$${fmt(o.total)}</div>
-        <button class="btn-danger btn-del" data-id="${o.id}" title="Eliminar">✕</button>
       </div>
     `).join('')
   }
@@ -248,51 +376,32 @@
     const a = calcAccounting()
     const container = $('#resumen-contabilidad')
     container.innerHTML = `
-      <div class="acct-card">
-        <span class="label">Ventas en efectivo</span>
-        <span class="value">$${fmt(a.totalCash)}</span>
-      </div>
-      <div class="acct-card">
-        <span class="label">Deudores pagados</span>
-        <span class="value">$${fmt(a.totalDebtorPaid)}</span>
-      </div>
-      <div class="acct-card ${a.totalPendingDebt > 0 ? 'acct-loss' : ''}">
-        <span class="label">Por cobrar (deudores)</span>
-        <span class="value">$${fmt(a.totalPendingDebt)}</span>
-      </div>
-      <div class="acct-card">
-        <span class="label">Total ganado (recibido)</span>
-        <span class="value">$${fmt(a.totalEarned)}</span>
-      </div>
-      <div class="acct-card">
-        <span class="label">Inversión en cajas</span>
-        <span class="value">$${fmt(a.totalSpent)}</span>
-      </div>
-      <div class="acct-card ${a.profit >= 0 ? 'acct-profit' : 'acct-loss'}">
-        <span class="label">Ganancia neta</span>
-        <span class="value">$${fmt(a.profit)}</span>
-      </div>
-      <div class="acct-card">
-        <span class="label">Cajas compradas</span>
-        <span class="value">${a.totalBoxesBought}</span>
-      </div>
-      <div class="acct-card">
-        <span class="label">Bandejas compradas</span>
-        <span class="value">${a.totalTraysBought}</span>
-      </div>
-      <div class="acct-card">
-        <span class="label">Bandejas entregadas</span>
-        <span class="value">${a.deliveredTrays}</span>
-      </div>
-      <div class="acct-card ${a.remainingTrays < 0 ? 'acct-loss' : ''}">
-        <span class="label">Bandejas restantes</span>
-        <span class="value">${a.remainingTrays}</span>
-      </div>
-      <div class="acct-card">
-        <span class="label">Total pedidos</span>
-        <span class="value">${a.totalOrders}</span>
-      </div>
+      <div class="acct-card"><span class="label">Ventas en efectivo</span><span class="value">$${fmt(a.totalCash)}</span></div>
+      <div class="acct-card"><span class="label">Deudores pagados</span><span class="value">$${fmt(a.totalDebtorPaid)}</span></div>
+      <div class="acct-card ${a.totalPendingDebt > 0 ? 'acct-loss' : ''}"><span class="label">Por cobrar (deudores)</span><span class="value">$${fmt(a.totalPendingDebt)}</span></div>
+      <div class="acct-card"><span class="label">Total ganado (recibido)</span><span class="value">$${fmt(a.totalEarned)}</span></div>
+      <div class="acct-card"><span class="label">Inversión en cajas</span><span class="value">$${fmt(a.totalSpent)}</span></div>
+      <div class="acct-card ${a.profit >= 0 ? 'acct-profit' : 'acct-loss'}"><span class="label">Ganancia neta</span><span class="value">$${fmt(a.profit)}</span></div>
+      <div class="acct-card"><span class="label">Cajas compradas</span><span class="value">${a.totalBoxesBought}</span></div>
+      <div class="acct-card"><span class="label">Bandejas compradas</span><span class="value">${a.totalTraysBought}</span></div>
+      <div class="acct-card"><span class="label">Bandejas entregadas</span><span class="value">${a.deliveredTrays}</span></div>
+      <div class="acct-card ${a.remainingTrays < 0 ? 'acct-loss' : ''}"><span class="label">Bandejas restantes</span><span class="value">${a.remainingTrays}</span></div>
+      <div class="acct-card"><span class="label">Total pedidos</span><span class="value">${a.totalOrders}</span></div>
     `
+  }
+
+  function renderNotes () {
+    const textarea = $('#notas-textarea')
+    if (textarea && !textarea._listening) {
+      textarea._listening = true
+      textarea.value = data.notes || ''
+      textarea.addEventListener('input', () => {
+        data.notes = textarea.value
+        data.notesUpdatedAt = Date.now()
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+        syncToWorker()
+      })
+    }
   }
 
   // ===== Helpers =====
@@ -301,10 +410,7 @@
     d.textContent = s
     return d.innerHTML
   }
-
-  function fmt (n) {
-    return Number(n).toLocaleString('es-CL')
-  }
+  function fmt (n) { return Number(n).toLocaleString('es-CL') }
 
   // ===== Tab switching =====
   function switchTab (name) {
@@ -317,7 +423,7 @@
   // ===== Modal =====
   function showModal (msg, buttons) {
     const modal = $('#modal')
-    $('#modal-msg').textContent = msg
+    $('#modal-msg').innerHTML = msg
     const actions = $('#modal-actions')
     actions.innerHTML = ''
     buttons.forEach(b => {
@@ -329,145 +435,7 @@
     })
     modal.classList.remove('hidden')
   }
-
-  function hideModal () {
-    $('#modal').classList.add('hidden')
-  }
-
-  function showEditModal (id) {
-    const order = data.orders.find(o => o.id === id)
-    if (!order) return
-    const modal = $('#modal')
-    $('#modal-msg').textContent = 'Editar pedido'
-    const actions = $('#modal-actions')
-    actions.innerHTML = `
-      <div class="modal-edit-row">
-        <label>Nombre</label>
-        <input type="text" id="edit-name" value="${esc(order.name)}">
-        <label>Bandejas</label>
-        <input type="number" id="edit-trays" value="${order.trayCount}" min="1">
-        <label>Precio por bandeja ($)</label>
-        <input type="number" id="edit-price" value="${order.pricePerTray}" min="1" step="100">
-        <label>Entrega (vacío = hoy)</label>
-        <input type="date" id="edit-delivery" value="${order.deliveryDate || ''}">
-      </div>
-      <div class="modal-actions">
-        <button class="btn-primary" id="btn-save-edit">Guardar</button>
-        <button class="btn-sm" id="btn-cancel-edit">Cancelar</button>
-      </div>
-    `
-    modal.classList.remove('hidden')
-    $('#btn-save-edit').onclick = () => {
-      const name = $('#edit-name').value.trim()
-      const trays = parseInt($('#edit-trays').value)
-      const price = parseInt($('#edit-price').value)
-      const delivery = $('#edit-delivery').value
-      if (!name || !trays || !price) return
-      editOrder(id, {
-        name,
-        trayCount: trays,
-        pricePerTray: price,
-        deliveryDate: delivery || null
-      })
-      hideModal()
-    }
-    $('#btn-cancel-edit').onclick = () => hideModal()
-  }
-
-  // ---- Notifications & Upcoming Alerts ----
-  function requestNotificationPermission () {
-    if (!('Notification' in window)) return
-    if (Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-  }
-
-  function getAlertedIds () {
-    try {
-      return JSON.parse(localStorage.getItem('huevos_alerted') || '[]')
-    } catch (_) { return [] }
-  }
-
-  function markAlerted (id) {
-    const alerted = getAlertedIds()
-    if (!alerted.includes(id)) {
-      alerted.push(id)
-      localStorage.setItem('huevos_alerted', JSON.stringify(alerted))
-    }
-  }
-
-  function checkUpcomingDeliveries () {
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    const tomorrowStr = tomorrow.toLocaleDateString('es-CL')
-    const upcoming = getPending().filter(o => {
-      if (!o.deliveryDate) return false
-      if (o.deliveryDate !== tomorrowStr) return false
-      return !getAlertedIds().includes(o.id)
-    })
-    const banner = $('#alert-banner')
-    if (!upcoming.length) {
-      if (banner) banner.classList.add('hidden')
-      return
-    }
-    const listHtml = upcoming.map(o => `<li>${esc(o.name)} - ${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''}</li>`).join('')
-    banner.innerHTML = `
-      <button class="alert-banner-close" id="alert-close">✕</button>
-      <div class="alert-banner-title">🔔 Mañana debes entregar:</div>
-      <ul class="alert-banner-list">${listHtml}</ul>
-    `
-    banner.classList.remove('hidden')
-    const closeBtn = $('#alert-close')
-    if (closeBtn) closeBtn.onclick = () => banner.classList.add('hidden')
-    if ('Notification' in window && Notification.permission === 'granted') {
-      const names = upcoming.map(o => o.name).join(', ')
-      new Notification('Control Huevos', {
-        body: `Mañana debes entregar: ${names}`,
-        icon: 'icons/icon-192.png'
-      })
-    }
-    upcoming.forEach(o => markAlerted(o.id))
-  }
-
-  // ===== Service Worker & Update Detection =====
-  let swRegistration = null
-
-  function initServiceWorker () {
-    if (!('serviceWorker' in navigator)) return
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      swRegistration = reg
-      reg.update()
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing
-        if (!newWorker) return
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            showUpdateBanner()
-          }
-        })
-      })
-    })
-    let refreshing = false
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!refreshing) {
-        refreshing = true
-        window.location.reload()
-      }
-    })
-  }
-
-  function showUpdateBanner () {
-    const banner = $('#update-banner')
-    if (banner) banner.classList.remove('hidden')
-  }
-
-  function acceptUpdate () {
-    if (swRegistration && swRegistration.waiting) {
-      swRegistration.waiting.postMessage({ type: 'SKIP_WAITING' })
-    }
-    window.location.reload()
-  }
-
+  function hideModal () { $('#modal').classList.add('hidden') }
   $('#modal').addEventListener('click', e => { if (e.target === e.currentTarget) hideModal() })
 
   // ===== Events =====
@@ -486,12 +454,10 @@
     const name = $('#pedido-name').value.trim()
     const trays = parseInt($('#pedido-trays').value)
     const price = parseInt($('#pedido-price').value)
-    const delivery = $('#pedido-delivery').value
     if (!name || !trays || !price) return
-    addOrder(name, trays, price, delivery || null)
+    addOrder(name, trays, price)
     $('#pedido-name').value = ''
     $('#pedido-trays').value = ''
-    $('#pedido-delivery').value = ''
     const suggested = getLastSuggestedPrice()
     $('#pedido-price').value = suggested || ''
     $('#pedido-name').focus()
@@ -504,45 +470,47 @@
     }
   }
 
-  // Deliver order
+  // Deliver order - ask "Paid or not?"
   $('#pedidos-pendientes').addEventListener('click', e => {
-    if (!e.target.classList.contains('chk-deliver')) return
-    e.preventDefault()
-    const id = e.target.dataset.id
-    showModal('¿Canceló en efectivo o es deudor?', [
-      { label: '💵 Efectivo', className: 'btn-primary', action: () => { deliverOrder(id, 'cash'); switchTab('pagados') } },
-      { label: '📝 Deudor', className: 'btn-sm', action: () => { deliverOrder(id, 'debtor'); switchTab('deudores') } },
-      { label: 'Cancelar', className: 'btn-sm', action: () => {} }
-    ])
+    if (e.target.classList.contains('chk-deliver')) {
+      e.preventDefault()
+      const id = e.target.dataset.id
+      showModal('¿El cliente pagó?', [
+        { label: '✅ Sí, pagó', className: 'btn-primary', action: () => { deliverOrder(id, true); switchTab('pagados') } },
+        { label: '❌ No pagó', className: 'btn-sm', action: () => { deliverOrder(id, false); switchTab('deudores') } },
+        { label: 'Cancelar', className: 'btn-sm', action: () => {} }
+      ])
+    }
+    if (e.target.classList.contains('btn-edit-order')) {
+      e.preventDefault()
+      showEditModal(e.target.dataset.id)
+    }
   })
 
   // Pay debtor
   $('#lista-deudores').addEventListener('click', e => {
-    if (!e.target.classList.contains('chk-pay')) return
-    e.preventDefault()
-    const id = e.target.dataset.id
-    showModal('¿El deudor pagó?', [
-      { label: '✅ Sí, pagó', className: 'btn-primary', action: () => { markPaid(id); switchTab('pagados') } },
-      { label: 'Cancelar', className: 'btn-sm', action: () => {} }
-    ])
+    if (e.target.classList.contains('chk-pay')) {
+      e.preventDefault()
+      const id = e.target.dataset.id
+      showModal('¿El deudor pagó?', [
+        { label: '✅ Sí, pagó', className: 'btn-primary', action: () => { markPaid(id); switchTab('pagados') } },
+        { label: 'Cancelar', className: 'btn-sm', action: () => {} }
+      ])
+    }
   })
 
-  // Delete order / purchase / edit order / update
+  // Delete
   document.addEventListener('click', e => {
     if (e.target.classList.contains('btn-del')) {
       const id = e.target.dataset.id
-      if (confirm('¿Eliminar este pedido?')) deleteOrder(id)
+      showModal('¿Eliminar este pedido?', [
+        { label: 'Eliminar', className: 'btn-danger', action: () => deleteOrder(id) },
+        { label: 'Cancelar', className: 'btn-sm', action: () => {} }
+      ])
     }
     if (e.target.classList.contains('btn-del-purchase')) {
       const id = e.target.dataset.id
       if (confirm('¿Eliminar esta compra?')) deletePurchase(id)
-    }
-    if (e.target.classList.contains('btn-edit-order')) {
-      const id = e.target.dataset.id
-      showEditModal(id)
-    }
-    if (e.target.id === 'btn-accept-update') {
-      acceptUpdate()
     }
   })
 
@@ -557,7 +525,6 @@
   $('#compra-price').addEventListener('input', calcSuggestion)
   $$('input[name="markup"]').forEach(r => r.addEventListener('change', calcSuggestion))
 
-  // New purchase
   $('#form-compra').addEventListener('submit', e => {
     e.preventDefault()
     const boxes = parseInt($('#compra-boxes').value)
@@ -584,10 +551,7 @@
   })
 
   // Import
-  $('#btn-import').addEventListener('click', () => {
-    $('#import-file').click()
-  })
-
+  $('#btn-import').addEventListener('click', () => { $('#import-file').click() })
   $('#import-file').addEventListener('change', e => {
     const file = e.target.files[0]
     if (!file) return
@@ -595,61 +559,37 @@
     reader.onload = ev => {
       try {
         const imported = JSON.parse(ev.target.result)
-        let importedData = imported
-        if (imported.data && imported.data.orders) {
-          importedData = imported.data
-        }
+        let importedData = imported.data || imported
         const orders = importedData.orders || []
         const purchases = importedData.purchases || []
-        if (!orders.length && !purchases.length) {
-          alert('El archivo no contiene datos válidos')
-          return
-        }
-        const mergedOrders = [...data.orders, ...orders]
-        const mergedPurchases = [...data.purchases, ...purchases]
-        const seenOrders = new Set()
-        const uniqueOrders = mergedOrders.filter(o => {
-          if (seenOrders.has(o.id)) return false
-          seenOrders.add(o.id)
+        if (!orders.length && !purchases.length) { alert('El archivo no contiene datos válidos'); return }
+        const seen = new Set()
+        const mergedOrders = [...orders, ...data.orders].filter(o => {
+          if (seen.has(o.id)) return false
+          seen.add(o.id)
           return true
         })
-        const seenPurchases = new Set()
-        const uniquePurchases = mergedPurchases.filter(p => {
-          if (seenPurchases.has(p.id)) return false
-          seenPurchases.add(p.id)
+        const seenP = new Set()
+        const mergedPurchases = [...purchases, ...data.purchases].filter(p => {
+          if (seenP.has(p.id)) return false
+          seenP.add(p.id)
           return true
         })
-        uniqueOrders.forEach(o => {
-          if (!o.status) {
-            if (o.paid || o.payment === 'paid') {
-              o.status = 'delivered'
-            } else if (o.payment === 'debtor') {
-              o.status = 'delivered'
-            } else {
-              o.status = 'pending'
-            }
-          }
-          if (o.payment === 'paid') o.payment = 'cash'
-          if (!o.total && o.trayCount && o.pricePerTray) {
-            o.total = o.trayCount * o.pricePerTray
-          }
-        })
-        data.orders = uniqueOrders
-        data.purchases = uniquePurchases
+        data.orders = mergedOrders
+        data.purchases = mergedPurchases
+        if (importedData.notes) data.notes = importedData.notes
+        normalizeOrders()
         saveData()
-        alert(`Importados: ${uniqueOrders.length} pedidos, ${uniquePurchases.length} compras`)
-      } catch (err) {
-        alert('Error al leer el archivo: ' + err.message)
-      }
+        alert(`Importados: ${mergedOrders.length} pedidos, ${mergedPurchases.length} compras`)
+      } catch (err) { alert('Error al leer: ' + err.message) }
     }
     reader.readAsText(file)
     e.target.value = ''
   })
 
   // ===== Init =====
+  normalizeOrders()
   updatePriceSuggestion()
   renderAll()
-  initServiceWorker()
-  requestNotificationPermission()
-  checkUpcomingDeliveries()
+  syncFromWorker()
 })()
