@@ -15,7 +15,6 @@
 <body>
 
 <div id="app">
-  <div id="alert-banner" class="alert-banner hidden"></div>
   <header>
     <h1>🥚 Control Huevos</h1>
     <button id="btn-export" title="Exportar datos">📤</button>
@@ -49,19 +48,11 @@
             <input type="number" id="pedido-price" min="1" step="100" required>
           </div>
         </div>
-        <div class="field">
-          <label for="pedido-delivery">Entrega (opcional)</label>
-          <input type="date" id="pedido-delivery">
-          <span class="field-hint">Dejar vacío = entrega hoy</span>
-        </div>
         <button type="submit" class="btn-primary">Agregar Pedido</button>
       </form>
 
       <h2>Pendientes</h2>
       <div id="pedidos-pendientes" class="list"></div>
-
-      <h2 id="proximos-title" class="hidden">Próximas entregas</h2>
-      <div id="pedidos-proximos" class="list"></div>
     </section>
 
     <!-- ===== DEUDORES ===== -->

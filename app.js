@@ -133,9 +133,9 @@
 
   function renderPending () {
     const container = $('#pedidos-pendientes')
+    const todayStr = today()
     const list = getPending().filter(o => {
       if (!o.deliveryDate) return true
-      const todayStr = today()
       return o.deliveryDate <= todayStr
     })
     if (!list.length) {
@@ -162,12 +162,12 @@
     const todayStr = today()
     const list = getPending().filter(o => o.deliveryDate && o.deliveryDate > todayStr).sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
     if (!list.length) {
-      title.classList.add('hidden')
-      container.innerHTML = ''
+      if (title) title.classList.add('hidden')
+      if (container) container.innerHTML = ''
       return
     }
-    title.classList.remove('hidden')
-    container.innerHTML = list.map(o => `
+    if (title) title.classList.remove('hidden')
+    if (container) container.innerHTML = list.map(o => `
       <div class="card" data-id="${o.id}">
         <input type="checkbox" class="checkbox-lg chk-deliver" data-id="${o.id}">
         <div class="card-body">
@@ -349,7 +349,7 @@
         <label>Precio por bandeja ($)</label>
         <input type="number" id="edit-price" value="${order.pricePerTray}" min="1" step="100">
         <label>Entrega (vacío = hoy)</label>
-        <input type="date" id="edit-delivery" value="${order.deliveryDate ? order.deliveryDate : ''}">
+        <input type="date" id="edit-delivery" value="${order.deliveryDate || ''}">
       </div>
       <div class="modal-actions">
         <button class="btn-primary" id="btn-save-edit">Guardar</button>
@@ -400,7 +400,6 @@
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     const tomorrowStr = tomorrow.toLocaleDateString('es-CL')
-    const todayStr = today()
     const upcoming = getPending().filter(o => {
       if (!o.deliveryDate) return false
       if (o.deliveryDate !== tomorrowStr) return false
@@ -408,7 +407,7 @@
     })
     const banner = $('#alert-banner')
     if (!upcoming.length) {
-      banner.classList.add('hidden')
+      if (banner) banner.classList.add('hidden')
       return
     }
     const listHtml = upcoming.map(o => `<li>${esc(o.name)} - ${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''}</li>`).join('')
@@ -418,7 +417,8 @@
       <ul class="alert-banner-list">${listHtml}</ul>
     `
     banner.classList.remove('hidden')
-    $('#alert-close').onclick = () => banner.classList.add('hidden')
+    const closeBtn = $('#alert-close')
+    if (closeBtn) closeBtn.onclick = () => banner.classList.add('hidden')
     if ('Notification' in window && Notification.permission === 'granted') {
       const names = upcoming.map(o => o.name).join(', ')
       new Notification('Control Huevos', {
@@ -427,6 +427,45 @@
       })
     }
     upcoming.forEach(o => markAlerted(o.id))
+  }
+
+  // ===== Service Worker & Update Detection =====
+  let swRegistration = null
+
+  function initServiceWorker () {
+    if (!('serviceWorker' in navigator)) return
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      swRegistration = reg
+      reg.update()
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing
+        if (!newWorker) return
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            showUpdateBanner()
+          }
+        })
+      })
+    })
+    let refreshing = false
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true
+        window.location.reload()
+      }
+    })
+  }
+
+  function showUpdateBanner () {
+    const banner = $('#update-banner')
+    if (banner) banner.classList.remove('hidden')
+  }
+
+  function acceptUpdate () {
+    if (swRegistration && swRegistration.waiting) {
+      swRegistration.waiting.postMessage({ type: 'SKIP_WAITING' })
+    }
+    window.location.reload()
   }
 
   $('#modal').addEventListener('click', e => { if (e.target === e.currentTarget) hideModal() })
@@ -490,7 +529,7 @@
     ])
   })
 
-  // Delete order
+  // Delete order / purchase / edit order
   document.addEventListener('click', e => {
     if (e.target.classList.contains('btn-del')) {
       const id = e.target.dataset.id
@@ -503,6 +542,9 @@
     if (e.target.classList.contains('btn-edit-order')) {
       const id = e.target.dataset.id
       showEditModal(id)
+    }
+    if (e.target.id === 'btn-accept-update') {
+      acceptUpdate()
     }
   })
 
@@ -546,6 +588,7 @@
   // ===== Init =====
   updatePriceSuggestion()
   renderAll()
+  initServiceWorker()
   requestNotificationPermission()
   checkUpcomingDeliveries()
 })()
