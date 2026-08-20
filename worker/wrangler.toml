@@ -1,0 +1,7 @@
+name = "huevos-sync"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "HUEVOS_KV"
+id = "dde9bf64866847238cdd7bf799509845"

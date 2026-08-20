@@ -26,9 +26,12 @@
 
   function daysSince (dateStr) {
     if (!dateStr) return 999
-    const parts = dateStr.split('-')
+    var parts = String(dateStr).split('-')
     if (parts.length !== 3) return 999
-    const d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]))
+    var day, month, year
+    if (parts[0].length === 4) { year = parseInt(parts[0]); month = parseInt(parts[1]); day = parseInt(parts[2]) } else { day = parseInt(parts[0]); month = parseInt(parts[1]); year = parseInt(parts[2]) }
+    if (!day || !month || !year) return 999
+    var d = new Date(year, month - 1, day)
     return Math.floor((new Date() - d) / (1000 * 60 * 60 * 24))
   }
 
@@ -120,6 +123,11 @@
 
   function normalizeOrders () {
     data.orders.forEach(o => {
+      if (o.paid) {
+        if (o.status !== 'delivered') o.status = 'delivered'
+        if (o.payment === 'debtor') o.payment = 'cash'
+        if (!o.paidDate) o.paidDate = o.date || today()
+      }
       if (!o.status) {
         if (o.paid || o.payment === 'paid') {
           o.status = 'delivered'
@@ -192,17 +200,32 @@
     const order = data.orders.find(o => o.id === id)
     if (!order) return
     const modal = $('#modal')
-    $('#modal-msg').innerHTML = 'Editar pedido de <strong>' + esc(order.name) + '</strong>'
+    modal.classList.add('modal-sheet')
+    $('#modal-msg').innerHTML = ''
     const actions = $('#modal-actions')
-    actions.innerHTML = '<div class="modal-edit-row">' +
-      '<label>Nombre</label><input type="text" id="edit-name" value="' + esc(order.name) + '">' +
-      '<label>Bandejas</label><input type="number" id="edit-trays" value="' + order.trayCount + '" min="1">' +
-      '<label>Precio por bandeja ($)</label><input type="number" id="edit-price" value="' + order.pricePerTray + '" min="1" step="100">' +
-      '<label>Fecha de entrega</label><input type="date" id="edit-delivery" value="' + (order.deliveryDate || '') + '">' +
+    actions.innerHTML = '<div class="sheet-head">' +
+      '<h3>Editar pedido</h3>' +
+      '<button class="sheet-close" id="edit-close" aria-label="Cerrar">✕</button>' +
       '</div>' +
-      '<button class="btn-primary" id="edit-save">Guardar</button>' +
-      '<button class="btn-sm" id="edit-cancel">Cancelar</button>'
+      '<div class="sheet-body">' +
+      '<label for="edit-name">Cliente</label>' +
+      '<input type="text" id="edit-name" value="' + esc(order.name) + '" placeholder="Nombre del cliente">' +
+      '<div class="sheet-row">' +
+      '<div class="sheet-field"><label for="edit-trays">Bandejas</label>' +
+      '<input type="number" id="edit-trays" value="' + order.trayCount + '" min="1" inputmode="numeric"></div>' +
+      '<div class="sheet-field"><label for="edit-price">Precio ($)</label>' +
+      '<input type="number" id="edit-price" value="' + order.pricePerTray + '" min="1" step="100" inputmode="numeric"></div>' +
+      '</div>' +
+      '<label for="edit-delivery">Fecha de entrega (opcional)</label>' +
+      '<input type="date" id="edit-delivery" value="' + (order.deliveryDate || '') + '">' +
+      '</div>' +
+      '<div class="sheet-actions">' +
+      '<button class="btn-sm" id="edit-cancel">Cancelar</button>' +
+      '<button class="btn-primary" id="edit-save">Guardar cambios</button>' +
+      '</div>'
     modal.classList.remove('hidden')
+    $('#edit-close').onclick = hideModal
+    $('#edit-cancel').onclick = hideModal
     $('#edit-save').onclick = function () {
       var n = $('#edit-name').value.trim()
       var t = parseInt($('#edit-trays').value)
@@ -210,7 +233,6 @@
       var dd = $('#edit-delivery').value
       if (n && t && p) { editOrder(id, n, t, p, dd); hideModal() }
     }
-    $('#edit-cancel').onclick = hideModal
   }
 
   // ===== Purchases =====
@@ -226,6 +248,8 @@
   }
 
   function deletePurchase (id) {
+    if (!data.deleted) data.deleted = []
+    data.deleted.push({ id, type: 'purchase', at: Date.now() })
     data.purchases = data.purchases.filter(p => p.id !== id)
     saveData()
   }
@@ -254,11 +278,12 @@
     var totalSpent = data.purchases.reduce(function (s, p) { return s + p.boxCount * p.pricePerBox }, 0)
     var profit = totalEarned - totalSpent
     var deliveredTrays = delivered.reduce(function (s, o) { return s + o.trayCount }, 0)
-    var remainingTrays = totalTraysBought - deliveredTrays
+    var remainingTrays = Math.max(0, totalTraysBought - deliveredTrays)
+    var overDelivered = deliveredTrays - totalTraysBought
     return { totalCash: totalCash, totalDebtorPaid: totalDebtorPaid, totalPendingDebt: totalPendingDebt,
       totalEarned: totalEarned, totalBoxesBought: totalBoxesBought, totalTraysBought: totalTraysBought,
       totalSpent: totalSpent, profit: profit, deliveredTrays: deliveredTrays,
-      remainingTrays: remainingTrays, totalOrders: data.orders.length }
+      remainingTrays: remainingTrays, overDelivered: overDelivered, totalOrders: data.orders.length }
   }
 
   // ===== UI =====
@@ -392,7 +417,7 @@
       '<div class="acct-card"><span class="label">Cajas compradas</span><span class="value">' + a.totalBoxesBought + '</span></div>' +
       '<div class="acct-card"><span class="label">Bandejas compradas</span><span class="value">' + a.totalTraysBought + '</span></div>' +
       '<div class="acct-card"><span class="label">Bandejas entregadas</span><span class="value">' + a.deliveredTrays + '</span></div>' +
-      '<div class="acct-card' + (a.remainingTrays < 0 ? ' acct-loss' : '') + '"><span class="label">Bandejas restantes</span><span class="value">' + a.remainingTrays + '</span></div>' +
+      '<div class="acct-card' + (a.overDelivered > 0 ? ' acct-loss' : '') + '"><span class="label">Bandejas restantes</span><span class="value">' + a.remainingTrays + (a.overDelivered > 0 ? ' (faltan ' + a.overDelivered + ')' : '') + '</span></div>' +
       '<div class="acct-card"><span class="label">Total pedidos</span><span class="value">' + a.totalOrders + '</span></div>'
   }
 
@@ -435,7 +460,7 @@
     })
     modal.classList.remove('hidden')
   }
-  function hideModal () { $('#modal').classList.add('hidden') }
+  function hideModal () { $('#modal').classList.add('hidden'); $('#modal').classList.remove('modal-sheet') }
   $('#modal').addEventListener('click', function (e) { if (e.target === e.currentTarget) hideModal() })
 
   // ===== Events =====
@@ -508,7 +533,10 @@
     }
     if (e.target.classList.contains('btn-del-purchase')) {
       var id2 = e.target.dataset.id
-      if (confirm('¿Eliminar esta compra?')) deletePurchase(id2)
+      showModal('¿Eliminar esta compra?', [
+        { label: 'Eliminar', className: 'btn-danger', action: function () { deletePurchase(id2) } },
+        { label: 'Cancelar', className: 'btn-sm', action: function () {} }
+      ])
     }
   })
 
@@ -539,7 +567,8 @@
   })
 
   $('#btn-export').addEventListener('click', function () {
-    var json = JSON.stringify(data, null, 2)
+    var exportData = { orders: data.orders, purchases: data.purchases, notes: data.notes || '', notesUpdatedAt: data.notesUpdatedAt || Date.now() }
+    var json = JSON.stringify({ data: exportData }, null, 2)
     var blob = new Blob([json], { type: 'application/json' })
     var url = URL.createObjectURL(blob)
     var a = document.createElement('a')
