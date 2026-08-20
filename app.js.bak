@@ -21,7 +21,7 @@
   function today () { return new Date().toLocaleDateString('es-CL') }
 
   // ---- Orders ----
-  function addOrder (name, trayCount, pricePerTray, deliveryDate) {
+  function addOrder (name, trayCount, pricePerTray) {
     data.orders.push({
       id: genId(),
       name: name.trim(),
@@ -29,7 +29,6 @@
       pricePerTray,
       total: trayCount * pricePerTray,
       date: today(),
-      deliveryDate: deliveryDate || null,
       status: 'pending',
       payment: null,
       paid: false,
@@ -58,16 +57,6 @@
 
   function deleteOrder (id) {
     data.orders = data.orders.filter(o => o.id !== id)
-    saveData()
-  }
-
-  function editOrder (id, newData) {
-    const order = data.orders.find(o => o.id === id)
-    if (!order) return
-    if (newData.name !== undefined) order.name = newData.name.trim()
-    if (newData.trayCount !== undefined) { order.trayCount = newData.trayCount; order.total = order.trayCount * order.pricePerTray }
-    if (newData.pricePerTray !== undefined) { order.pricePerTray = newData.pricePerTray; order.total = order.trayCount * order.pricePerTray }
-    if (newData.deliveryDate !== undefined) order.deliveryDate = newData.deliveryDate
     saveData()
   }
 
@@ -124,7 +113,6 @@
 
   function renderAll () {
     renderPending()
-    renderFuture()
     renderDebtors()
     renderPaid()
     renderPurchases()
@@ -133,11 +121,7 @@
 
   function renderPending () {
     const container = $('#pedidos-pendientes')
-    const todayStr = today()
-    const list = getPending().filter(o => {
-      if (!o.deliveryDate) return true
-      return o.deliveryDate <= todayStr
-    })
+    const list = getPending()
     if (!list.length) {
       container.innerHTML = '<div class="empty-msg">No hay pedidos pendientes</div>'
       return
@@ -150,33 +134,6 @@
           <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} x $${fmt(o.pricePerTray)}</div>
         </div>
         <div class="card-amount">$${fmt(o.total)}</div>
-        <button class="btn-edit btn-edit-order" data-id="${o.id}" title="Editar">✏️</button>
-        <button class="btn-danger btn-del" data-id="${o.id}" title="Eliminar">✕</button>
-      </div>
-    `).join('')
-  }
-
-  function renderFuture () {
-    const title = $('#proximos-title')
-    const container = $('#pedidos-proximos')
-    const todayStr = today()
-    const list = getPending().filter(o => o.deliveryDate && o.deliveryDate > todayStr).sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
-    if (!list.length) {
-      if (title) title.classList.add('hidden')
-      if (container) container.innerHTML = ''
-      return
-    }
-    if (title) title.classList.remove('hidden')
-    if (container) container.innerHTML = list.map(o => `
-      <div class="card" data-id="${o.id}">
-        <input type="checkbox" class="checkbox-lg chk-deliver" data-id="${o.id}">
-        <div class="card-body">
-          <div class="card-name">${esc(o.name)}</div>
-          <div class="card-detail">${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''} x $${fmt(o.pricePerTray)}</div>
-          <span class="badge-delivery">Entrega: ${esc(o.deliveryDate)}</span>
-        </div>
-        <div class="card-amount">$${fmt(o.total)}</div>
-        <button class="btn-edit btn-edit-order" data-id="${o.id}" title="Editar">✏️</button>
         <button class="btn-danger btn-del" data-id="${o.id}" title="Eliminar">✕</button>
       </div>
     `).join('')
@@ -334,143 +291,10 @@
     $('#modal').classList.add('hidden')
   }
 
-  function showEditModal (id) {
-    const order = data.orders.find(o => o.id === id)
-    if (!order) return
-    const modal = $('#modal')
-    $('#modal-msg').textContent = 'Editar pedido'
-    const actions = $('#modal-actions')
-    actions.innerHTML = `
-      <div class="modal-edit-row">
-        <label>Nombre</label>
-        <input type="text" id="edit-name" value="${esc(order.name)}">
-        <label>Bandejas</label>
-        <input type="number" id="edit-trays" value="${order.trayCount}" min="1">
-        <label>Precio por bandeja ($)</label>
-        <input type="number" id="edit-price" value="${order.pricePerTray}" min="1" step="100">
-        <label>Entrega (vacío = hoy)</label>
-        <input type="date" id="edit-delivery" value="${order.deliveryDate || ''}">
-      </div>
-      <div class="modal-actions">
-        <button class="btn-primary" id="btn-save-edit">Guardar</button>
-        <button class="btn-sm" id="btn-cancel-edit">Cancelar</button>
-      </div>
-    `
-    modal.classList.remove('hidden')
-    $('#btn-save-edit').onclick = () => {
-      const name = $('#edit-name').value.trim()
-      const trays = parseInt($('#edit-trays').value)
-      const price = parseInt($('#edit-price').value)
-      const delivery = $('#edit-delivery').value
-      if (!name || !trays || !price) return
-      editOrder(id, {
-        name,
-        trayCount: trays,
-        pricePerTray: price,
-        deliveryDate: delivery || null
-      })
-      hideModal()
-    }
-    $('#btn-cancel-edit').onclick = () => hideModal()
-  }
-
-  // ---- Notifications & Upcoming Alerts ----
-  function requestNotificationPermission () {
-    if (!('Notification' in window)) return
-    if (Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-  }
-
-  function getAlertedIds () {
-    try {
-      return JSON.parse(localStorage.getItem('huevos_alerted') || '[]')
-    } catch (_) { return [] }
-  }
-
-  function markAlerted (id) {
-    const alerted = getAlertedIds()
-    if (!alerted.includes(id)) {
-      alerted.push(id)
-      localStorage.setItem('huevos_alerted', JSON.stringify(alerted))
-    }
-  }
-
-  function checkUpcomingDeliveries () {
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    const tomorrowStr = tomorrow.toLocaleDateString('es-CL')
-    const upcoming = getPending().filter(o => {
-      if (!o.deliveryDate) return false
-      if (o.deliveryDate !== tomorrowStr) return false
-      return !getAlertedIds().includes(o.id)
-    })
-    const banner = $('#alert-banner')
-    if (!upcoming.length) {
-      if (banner) banner.classList.add('hidden')
-      return
-    }
-    const listHtml = upcoming.map(o => `<li>${esc(o.name)} - ${o.trayCount} bandeja${o.trayCount !== 1 ? 's' : ''}</li>`).join('')
-    banner.innerHTML = `
-      <button class="alert-banner-close" id="alert-close">✕</button>
-      <div class="alert-banner-title">🔔 Mañana debes entregar:</div>
-      <ul class="alert-banner-list">${listHtml}</ul>
-    `
-    banner.classList.remove('hidden')
-    const closeBtn = $('#alert-close')
-    if (closeBtn) closeBtn.onclick = () => banner.classList.add('hidden')
-    if ('Notification' in window && Notification.permission === 'granted') {
-      const names = upcoming.map(o => o.name).join(', ')
-      new Notification('Control Huevos', {
-        body: `Mañana debes entregar: ${names}`,
-        icon: 'icons/icon-192.png'
-      })
-    }
-    upcoming.forEach(o => markAlerted(o.id))
-  }
-
-  // ===== Service Worker & Update Detection =====
-  let swRegistration = null
-
-  function initServiceWorker () {
-    if (!('serviceWorker' in navigator)) return
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      swRegistration = reg
-      reg.update()
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing
-        if (!newWorker) return
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            showUpdateBanner()
-          }
-        })
-      })
-    })
-    let refreshing = false
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!refreshing) {
-        refreshing = true
-        window.location.reload()
-      }
-    })
-  }
-
-  function showUpdateBanner () {
-    const banner = $('#update-banner')
-    if (banner) banner.classList.remove('hidden')
-  }
-
-  function acceptUpdate () {
-    if (swRegistration && swRegistration.waiting) {
-      swRegistration.waiting.postMessage({ type: 'SKIP_WAITING' })
-    }
-    window.location.reload()
-  }
-
   $('#modal').addEventListener('click', e => { if (e.target === e.currentTarget) hideModal() })
 
   // ===== Events =====
+  // Tab switching
   $$('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
       $$('.tab').forEach(t => t.classList.remove('active'))
@@ -486,17 +310,16 @@
     const name = $('#pedido-name').value.trim()
     const trays = parseInt($('#pedido-trays').value)
     const price = parseInt($('#pedido-price').value)
-    const delivery = $('#pedido-delivery').value
     if (!name || !trays || !price) return
-    addOrder(name, trays, price, delivery || null)
+    addOrder(name, trays, price)
     $('#pedido-name').value = ''
     $('#pedido-trays').value = ''
-    $('#pedido-delivery').value = ''
     const suggested = getLastSuggestedPrice()
     $('#pedido-price').value = suggested || ''
     $('#pedido-name').focus()
   })
 
+  // Pre-fill suggested price
   function updatePriceSuggestion () {
     const suggested = getLastSuggestedPrice()
     if (suggested && !$('#pedido-price').value) {
@@ -527,7 +350,7 @@
     ])
   })
 
-  // Delete order / purchase / edit order / update
+  // Delete order
   document.addEventListener('click', e => {
     if (e.target.classList.contains('btn-del')) {
       const id = e.target.dataset.id
@@ -537,16 +360,9 @@
       const id = e.target.dataset.id
       if (confirm('¿Eliminar esta compra?')) deletePurchase(id)
     }
-    if (e.target.classList.contains('btn-edit-order')) {
-      const id = e.target.dataset.id
-      showEditModal(id)
-    }
-    if (e.target.id === 'btn-accept-update') {
-      acceptUpdate()
-    }
   })
 
-  // Purchase form
+  // Purchase form - live price suggestion
   function calcSuggestion () {
     const boxes = parseInt($('#compra-boxes').value) || 0
     const price = parseInt($('#compra-price').value) || 0
@@ -571,7 +387,7 @@
     updatePriceSuggestion()
   })
 
-  // Export
+  // Export / backup
   $('#btn-export').addEventListener('click', () => {
     const json = JSON.stringify(data, null, 2)
     const blob = new Blob([json], { type: 'application/json' })
@@ -586,7 +402,4 @@
   // ===== Init =====
   updatePriceSuggestion()
   renderAll()
-  initServiceWorker()
-  requestNotificationPermission()
-  checkUpcomingDeliveries()
 })()

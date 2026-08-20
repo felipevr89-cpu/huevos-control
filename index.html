@@ -15,6 +15,11 @@
 <body>
 
 <div id="app">
+  <div id="update-banner" class="update-banner hidden">
+    <span>Nueva versión disponible</span>
+    <button id="btn-accept-update" class="btn-update">Actualizar</button>
+  </div>
+  <div id="alert-banner" class="alert-banner hidden"></div>
   <header>
     <h1>🥚 Control Huevos</h1>
     <button id="btn-export" title="Exportar datos">📤</button>
@@ -48,11 +53,19 @@
             <input type="number" id="pedido-price" min="1" step="100" required>
           </div>
         </div>
+        <div class="field">
+          <label for="pedido-delivery">Entrega (opcional)</label>
+          <input type="date" id="pedido-delivery">
+          <span class="field-hint">Dejar vacío = entrega hoy</span>
+        </div>
         <button type="submit" class="btn-primary">Agregar Pedido</button>
       </form>
 
       <h2>Pendientes</h2>
       <div id="pedidos-pendientes" class="list"></div>
+
+      <h2 id="proximos-title" class="hidden">Próximas entregas</h2>
+      <div id="pedidos-proximos" class="list"></div>
     </section>
 
     <!-- ===== DEUDORES ===== -->
@@ -123,10 +136,5 @@
 </div>
 
 <script src="app.js"></script>
-<script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js')
-}
-</script>
 </body>
 </html>
