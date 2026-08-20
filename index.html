@@ -16,9 +16,13 @@
 
 <div id="app">
   <header>
-    <h1>🥚 Control Huevos</h1>
+    <div class="header-title">
+      <h1>🥚 Control Huevos</h1>
+      <span id="header-date" class="header-date"></span>
+    </div>
     <div class="header-actions">
-      <span id="sync-status" class="sync-status sync-ok">✅</span>
+      <span id="sync-status" class="sync-status sync-ok" title="Sincronizado">✅</span>
+      <span id="sync-label" class="sync-label">OK</span>
       <button id="btn-export" title="Exportar datos">📤</button>
       <button id="btn-import" title="Importar datos">📥</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
@@ -39,7 +43,6 @@
     <section id="tab-pedidos" class="tab-content active">
       <form id="form-pedido">
         <h2>Nuevo Pedido</h2>
-        <button type="button" class="btn-reuse" id="btn-reuse">↺ Reutilizar último pedido</button>
         <div class="field">
           <label for="pedido-name">Nombre del cliente</label>
           <input type="text" id="pedido-name" required>
@@ -77,6 +80,14 @@
     <section id="tab-pagados" class="tab-content">
       <h2>Pagados</h2>
       <p class="subtitle">Historial de pagos completados</p>
+      <div class="period-filter">
+        <select id="period-pagados">
+          <option value="all">Todo</option>
+          <option value="today">Hoy</option>
+          <option value="week">Esta semana</option>
+          <option value="month">Este mes</option>
+        </select>
+      </div>
       <div id="lista-pagados" class="list"></div>
     </section>
 
@@ -118,6 +129,14 @@
 
     <section id="tab-contabilidad" class="tab-content">
       <h2>Contabilidad</h2>
+      <div class="period-filter">
+        <select id="period-contabilidad">
+          <option value="all">Todo</option>
+          <option value="today">Hoy</option>
+          <option value="week">Esta semana</option>
+          <option value="month">Este mes</option>
+        </select>
+      </div>
       <div id="resumen-contabilidad" class="accounting"></div>
     </section>
 
