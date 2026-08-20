@@ -18,7 +18,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 
 ## Infraestructura
 - **Hosting**: Cloudflare Pages (`huevos-app`)
-- **Deploy**: `wrangler pages deploy . --project-name huevos-app --branch main --commit-dirty=true`
+- **Deploy**: `./deploy.sh` — despliega **desde git HEAD** (nunca desde el disco local) y **aborta si el repo está sucio**. Nunca usar `wrangler pages deploy --commit-dirty=true` manualmente.
 - **Wrangler path**: `/tmp/node_modules/.bin/wrangler`
 - **Sync Worker**: `https://huevos-sync.felipe-v-r-89.workers.dev/api/sync`
 - **Sync Key**: `huevos-felipe`
@@ -26,6 +26,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **Worker deploy**: `cd worker && wrangler deploy --config wrangler.toml`
 - **GitHub repo**: `felipevr89-cpu/huevos-control`
 - **Backups**: `/media/datos/Felipe/Cosas/Backups-Huevos/` (script `backup-huevos.sh`)
+- **Tag base**: `v1.1.0-base`
 
 ## Funcionalidades
 1. **Pedidos** — Crear, editar (✏️), eliminar, marcar como entregado
@@ -58,7 +59,8 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - Los backups diarios se generan con `backup-huevos.sh`
 
 ## Historial de bugs
-- `write` tool falla silenciosamente — archivos no se persisten
+- `write` tool falla silenciosamente — archivos no se persisten. **NUNCA usar `write` tool**, usar `bash` con heredoc `cat > file << 'EOF'`
 - Git repo se corrompió (apuntaba a `/tmp/huevos-git`) — se reinicializó
 - `CLOUDFLARE_API_TOKEN` no está configurado en GitHub Secrets
 - POST al worker sin data borra todos los datos (cuidado) — **CORREGIDO en worker v2** (merge seguro + rechazo de payload vacío)
+- Archivos locales se sobrescribieron con versión antigua (app sin sync, 5 tabs) — se desplegó basura con `--commit-dirty=true` → **CORREGIDO**: `deploy.sh` ahora despliega desde `git archive HEAD` y aborta si el repo está sucio. Nunca usar `--commit-dirty=true` a mano.
