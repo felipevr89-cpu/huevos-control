@@ -790,4 +790,33 @@
       else syncFromWorker()
     })
   }
+
+  // ===== Service Worker auto-update =====
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(function (reg) {
+      function checkUpdate () {
+        if (reg.waiting) {
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' })
+          return
+        }
+        reg.update()
+      }
+      reg.addEventListener('updatefound', function () {
+        var newSw = reg.installing
+        if (newSw) {
+          newSw.addEventListener('statechange', function () {
+            if (newSw.state === 'installed' && navigator.serviceWorker.controller) {
+              checkUpdate()
+            }
+          })
+        }
+      })
+      checkUpdate()
+      setInterval(checkUpdate, 30000)
+    })
+    var refreshing = false
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!refreshing) { refreshing = true; window.location.reload() }
+    })
+  }
 })()
