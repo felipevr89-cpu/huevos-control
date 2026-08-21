@@ -162,5 +162,8 @@
 </div>
 
 <script src="app.js"></script>
+<script>
+if('serviceWorker' in navigator){navigator.serviceWorker.ready.then(function(r){if(r.active){r.active.postMessage({type:'SKIP_WAITING'})}});navigator.serviceWorker.addEventListener('controllerchange',function(){window.location.reload()})}
+</script>
 </body>
 </html>
