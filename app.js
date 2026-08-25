@@ -4,10 +4,25 @@
   const SYNC_API = 'https://huevos-sync.felipe-v-r-89.workers.dev/api/sync'
 
   let data = loadData()
-  let lastSync = 0
-  let lastUpload = 0
   let syncing = false
-  let pendingSync = false
+  let queuedWantPush = null
+  let retryTimer = null
+  let pushTimer = null
+  let failStreak = 0
+  let lastSyncOk = 0
+
+  const SYNC_META_KEY = 'huevos_sync_meta'
+  let syncMeta = loadSyncMeta()
+  var lastUpload = syncMeta.lastUpload || 0
+  var everUploaded = !!syncMeta.everUploaded
+  var dirty = !!syncMeta.dirty
+
+  function loadSyncMeta () {
+    try { return JSON.parse(localStorage.getItem(SYNC_META_KEY)) || {} } catch (_) { return {} }
+  }
+  function saveSyncMeta () {
+    try { localStorage.setItem(SYNC_META_KEY, JSON.stringify({ lastUpload: lastUpload, everUploaded: everUploaded, dirty: dirty })) } catch (_) {}
+  }
 
   function loadData () {
     try {
@@ -18,116 +33,151 @@
   }
 
   function saveData () {
+    dirty = true
+    saveSyncMeta()
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-    syncToWorker()
     renderAll()
+    scheduleSync(true, 500)
   }
 
   function genId () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }
   function today () { return new Date().toLocaleDateString('es-CL') }
 
+  function parseAnyDate (s) {
+    if (!s) return null
+    var parts = String(s).split('-')
+    if (parts.length !== 3) return null
+    var a = parseInt(parts[0]); var b = parseInt(parts[1]); var c = parseInt(parts[2])
+    if (!a || !b || !c) return null
+    if (parts[0].length === 4) return new Date(a, b - 1, c)
+    return new Date(c, b - 1, a)
+  }
+
   function daysSince (dateStr) {
-    if (!dateStr) return 999
-    var parts = String(dateStr).split('-')
-    if (parts.length !== 3) return 999
-    var day, month, year
-    if (parts[0].length === 4) { year = parseInt(parts[0]); month = parseInt(parts[1]); day = parseInt(parts[2]) } else { day = parseInt(parts[0]); month = parseInt(parts[1]); year = parseInt(parts[2]) }
-    if (!day || !month || !year) return 999
-    var d = new Date(year, month - 1, day)
+    var d = parseAnyDate(dateStr)
+    if (!d) return null
     return Math.floor((new Date() - d) / (1000 * 60 * 60 * 24))
   }
 
   // ===== SYNC =====
-  async function syncFromWorker () {
-    if (syncing) { pendingSync = true; return }
-    syncing = true
-    updateSyncIcon('syncing')
-    try {
-      const res = await fetch(SYNC_API, { headers: { 'X-Sync-Key': SYNC_KEY } })
-      if (!res.ok) throw new Error('HTTP ' + res.status)
-      const json = await res.json()
-      const remote = json.data || {}
-      const deletedIds = new Set((remote.deleted || []).map(d => d.id))
-      const remoteOrders = (remote.orders || []).filter(o => !deletedIds.has(o.id))
-      const remotePurchases = (remote.purchases || []).filter(p => !deletedIds.has(p.id))
-      const remoteNotes = remote.notes || ''
-      const remoteNotesUpdated = remote.notesUpdatedAt || 0
+  async function pullRemote () {
+    const res = await fetch(SYNC_API, { headers: { 'X-Sync-Key': SYNC_KEY } })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const json = await res.json()
+    const remote = json.data || {}
+    const deletedIds = new Set((remote.deleted || []).map(d => d.id))
+    const remoteOrders = (remote.orders || []).filter(o => !deletedIds.has(o.id))
+    const remotePurchases = (remote.purchases || []).filter(p => !deletedIds.has(p.id))
+    const remoteNotes = remote.notes || ''
+    const remoteNotesUpdated = remote.notesUpdatedAt || 0
 
-      const localIds = new Set(data.orders.map(o => o.id))
-      remoteOrders.forEach(ro => {
-        if (!localIds.has(ro.id)) {
-          data.orders.push(ro)
-        } else {
-          const local = data.orders.find(o => o.id === ro.id)
-          if (local && (ro.updatedAt || 0) > (local.updatedAt || 0)) {
-            Object.assign(local, ro)
-          }
-        }
-      })
-      const localPurIds = new Set(data.purchases.map(p => p.id))
-      remotePurchases.forEach(rp => {
-        if (!localPurIds.has(rp.id)) {
-          data.purchases.push(rp)
-        } else {
-          const local = data.purchases.find(p => p.id === rp.id)
-          if (local && (rp.updatedAt || 0) > (local.updatedAt || 0)) {
-            Object.assign(local, rp)
-          }
-        }
-      })
-      data.orders = data.orders.filter(o => !deletedIds.has(o.id))
-      data.purchases = data.purchases.filter(p => !deletedIds.has(p.id))
+    var changed = false
 
-      if (remoteNotesUpdated > (data.notesUpdatedAt || 0)) {
-        data.notes = remoteNotes
-        data.notesUpdatedAt = remoteNotesUpdated
-      }
+    var byId = new Map()
+    data.orders.forEach(o => byId.set(o.id, o))
+    remoteOrders.forEach(ro => {
+      const loc = byId.get(ro.id)
+      if (!loc) { byId.set(ro.id, ro); changed = true }
+      else if ((ro.updatedAt || 0) > (loc.updatedAt || 0)) { Object.assign(loc, ro); changed = true }
+    })
+    data.orders = Array.from(byId.values()).filter(o => !deletedIds.has(o.id))
 
-      if (!data.deleted) data.deleted = []
-      normalizeOrders()
-      lastSync = Date.now()
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-      renderAll()
-      updateSyncIcon('ok')
-    } catch (e) {
-      updateSyncIcon('error')
+    const purById = new Map()
+    data.purchases.forEach(p => purById.set(p.id, p))
+    remotePurchases.forEach(rp => {
+      const loc = purById.get(rp.id)
+      if (!loc) { purById.set(rp.id, rp); changed = true }
+      else if ((rp.updatedAt || 0) > (loc.updatedAt || 0)) { Object.assign(loc, rp); changed = true }
+    })
+    data.purchases = Array.from(purById.values()).filter(p => !deletedIds.has(p.id))
+
+    if (data.orders.length !== byId.size || data.purchases.length !== purById.size) changed = true
+
+    if (remoteNotesUpdated > (data.notesUpdatedAt || 0)) {
+      data.notes = remoteNotes
+      data.notesUpdatedAt = remoteNotesUpdated
+      changed = true
     }
-    syncing = false
-    if (pendingSync) { pendingSync = false; syncFromWorker() }
+
+    if (!data.deleted) data.deleted = []
+    normalizeOrders()
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    if (changed) renderAll()
+    return true
   }
 
-  async function syncToWorker () {
-    if (syncing) { pendingSync = true; return }
-    syncing = true
-    updateSyncIcon('syncing')
-    try {
-      var since = lastUpload > 0 ? lastUpload : 0
-      var changedOrders = since ? data.orders.filter(function (o) { return (o.updatedAt || 0) > since }) : data.orders
-      var changedPurchases = since ? data.purchases.filter(function (p) { return (p.updatedAt || 0) > since }) : data.purchases
-      var changedDeleted = since ? (data.deleted || []).filter(function (d) { return (d.at || 0) > since }) : (data.deleted || [])
-      const payload = {
-        data: {
-          orders: changedOrders,
-          purchases: changedPurchases,
-          notes: data.notes !== undefined ? data.notes : '',
-          notesUpdatedAt: data.notesUpdatedAt || 0,
-          deleted: changedDeleted
-        }
-      }
-      const res = await fetch(SYNC_API, {
-        method: 'POST',
-        headers: { 'X-Sync-Key': SYNC_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      if (!res.ok) throw new Error('HTTP ' + res.status)
-      lastSync = Date.now()
+  async function pushLocal () {
+    var since = lastUpload > 0 ? lastUpload : 0
+    var changedOrders = since ? data.orders.filter(function (o) { return (o.updatedAt || 0) > since }) : data.orders
+    var changedPurchases = since ? data.purchases.filter(function (p) { return (p.updatedAt || 0) > since }) : data.purchases
+    var allDeleted = data.deleted || []
+    var contentful = changedOrders.length > 0 || changedPurchases.length > 0 ||
+      allDeleted.length > 0 || (data.notes && data.notes.length > 0)
+    if (!contentful && everUploaded && since > 0) {
       lastUpload = Date.now()
-      updateSyncIcon('ok')
-    } catch (e) {
-      updateSyncIcon('error')
+      saveSyncMeta()
+      return true
+    }
+    const payload = {
+      data: {
+        orders: changedOrders,
+        purchases: changedPurchases,
+        notes: data.notes !== undefined ? data.notes : '',
+        notesUpdatedAt: data.notesUpdatedAt || 0,
+        deleted: allDeleted
+      }
+    }
+    const res = await fetch(SYNC_API, {
+      method: 'POST',
+      headers: { 'X-Sync-Key': SYNC_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    lastUpload = Date.now()
+    everUploaded = true
+    saveSyncMeta()
+    return true
+  }
+
+  async function doSync (wantPush) {
+    if (syncing) {
+      queuedWantPush = (queuedWantPush === true || wantPush === true)
+      return
+    }
+    syncing = true
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
+    updateSyncIcon('syncing')
+    var okPull = true
+    var okPush = true
+    try { await pullRemote() } catch (_) { okPull = false }
+    if (okPull && (wantPush === true || dirty)) {
+      try {
+        await pushLocal()
+        dirty = false
+        saveSyncMeta()
+      } catch (_) { okPush = false }
     }
     syncing = false
-    if (pendingSync) { pendingSync = false; syncToWorker() }
+    if (okPull && okPush) {
+      failStreak = 0
+      lastSyncOk = Date.now()
+      updateSyncIcon('ok')
+    } else {
+      failStreak++
+      updateSyncIcon('error')
+      var delay = Math.min(30000 * Math.pow(2, failStreak - 1), 300000)
+      retryTimer = setTimeout(function () { retryTimer = null; doSync(true) }, delay)
+    }
+    if (queuedWantPush !== null) {
+      var q = queuedWantPush
+      queuedWantPush = null
+      doSync(q)
+    }
+  }
+
+  function scheduleSync (wantPush, delay) {
+    if (pushTimer) clearTimeout(pushTimer)
+    pushTimer = setTimeout(function () { pushTimer = null; doSync(wantPush) }, delay || 400)
   }
 
   function updateSyncIcon (state) {
@@ -135,12 +185,17 @@
     if (!el) return
     el.className = 'sync-status sync-' + state
     const label = $('#sync-label')
+    var t = ''
+    if (lastSyncOk) {
+      var d = new Date(lastSyncOk)
+      t = d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0')
+    }
     if (state === 'syncing') { el.textContent = '🔄'; if (label) label.textContent = 'Sync…' }
-    else if (state === 'ok') { el.textContent = '✅'; if (label) label.textContent = 'OK' }
+    else if (state === 'ok') { el.textContent = '✅'; if (label) label.textContent = dirty ? 'Pendiente' : ('OK ' + t) }
     else { el.textContent = '⚠️'; if (label) label.textContent = 'Sin señal' }
     el.title = state === 'syncing' ? 'Sincronizando...'
       : state === 'ok' ? 'Sincronizado — toca para sincronizar ahora'
-      : 'Sin conexión — toca para reintentar'
+      : 'Sin conexión — se reintentará automáticamente'
   }
 
   function normalizeOrders () {
@@ -167,11 +222,12 @@
   }
 
   // ===== Orders =====
-  function addOrder (name, trayCount, pricePerTray, deliveryDate) {
+  function addOrder (name, trayCount, pricePerTray, deliveryDate, phone) {
     data.orders.push({
       id: genId(), name: name.trim(), trayCount, pricePerTray,
       total: trayCount * pricePerTray, date: today(),
       deliveryDate: deliveryDate || null,
+      phone: (phone || '').trim() || null,
       status: 'pending', payment: null, paid: false, paidDate: null,
       updatedAt: Date.now()
     })
@@ -179,7 +235,7 @@
     showToast('Pedido de ' + name.trim() + ' guardado')
   }
 
-  function editOrder (id, name, trayCount, pricePerTray, deliveryDate) {
+  function editOrder (id, name, trayCount, pricePerTray, deliveryDate, phone) {
     const order = data.orders.find(o => o.id === id)
     if (!order) return
     order.name = name.trim()
@@ -187,6 +243,7 @@
     order.pricePerTray = pricePerTray
     order.total = trayCount * pricePerTray
     order.deliveryDate = deliveryDate || null
+    if (phone !== undefined) order.phone = (phone || '').trim() || null
     order.updatedAt = Date.now()
     saveData()
     showToast('Pedido actualizado')
@@ -243,6 +300,8 @@
       '<div class="sheet-body">' +
       '<label for="edit-name">Cliente</label>' +
       '<input type="text" id="edit-name" value="' + esc(order.name) + '" placeholder="Nombre del cliente">' +
+      '<label for="edit-phone">Teléfono (opcional)</label>' +
+      '<input type="tel" id="edit-phone" value="' + esc(order.phone || '') + '" placeholder="+56 9 ..." inputmode="tel">' +
       '<div class="sheet-row">' +
       '<div class="sheet-field"><label for="edit-trays">Bandejas</label>' +
       '<input type="number" id="edit-trays" value="' + order.trayCount + '" min="1" inputmode="numeric"></div>' +
@@ -264,7 +323,8 @@
       var t = parseInt($('#edit-trays').value)
       var p = parseInt($('#edit-price').value)
       var dd = $('#edit-delivery').value
-      if (n && t && p) { editOrder(id, n, t, p, dd); hideModal() }
+      var ph = $('#edit-phone') ? $('#edit-phone').value : undefined
+      if (n && t && p) { editOrder(id, n, t, p, dd, ph); hideModal() }
     }
   }
 
@@ -295,6 +355,94 @@
     })
   }
 
+  function paidAmountOf (o) {
+    return (o.payments || []).reduce(function (s, p) { return s + (Number(p.amount) || 0) }, 0)
+  }
+  function saldoOf (o) {
+    if (o.paid) return 0
+    return Math.max(0, (Number(o.total) || 0) - paidAmountOf(o))
+  }
+  function addPayment (id, amount) {
+    var o = data.orders.find(function (x) { return x.id === id })
+    if (!o || !(amount > 0)) return
+    if (!o.payments) o.payments = []
+    o.payments.push({ amount: amount, date: today(), at: Date.now() })
+    o.updatedAt = Date.now()
+    if (saldoOf(o) <= 0) {
+      o.paid = true
+      o.paidDate = o.paidDate || today()
+      showToast('Pago completado ✅')
+    } else {
+      showToast('Abono de $' + fmt(amount) + ' registrado · Saldo: $' + fmt(saldoOf(o)))
+    }
+    saveData()
+  }
+  function showPaymentModal (id) {
+    var o = data.orders.find(function (x) { return x.id === id })
+    if (!o) return
+    var saldo = saldoOf(o)
+    var modal = $('#modal')
+    modal.classList.add('modal-sheet')
+    $('#modal-msg').innerHTML = ''
+    var actions = $('#modal-actions')
+    actions.innerHTML = '<div class="sheet-head">' +
+      '<h3>Abono de ' + esc(o.name) + '</h3>' +
+      '<button class="sheet-close" id="pay-close" aria-label="Cerrar">✕</button>' +
+      '</div>' +
+      '<div class="sheet-body">' +
+      '<p class="pay-info">Total: <strong>$' + fmt(o.total) + '</strong>' +
+      (paidAmountOf(o) > 0 ? ' · Ya abonado: <strong>$' + fmt(paidAmountOf(o)) + '</strong>' : '') +
+      ' · Saldo: <strong>$' + fmt(saldo) + '</strong></p>' +
+      '<label for="pay-amount">Monto recibido ($)</label>' +
+      '<input type="number" id="pay-amount" value="' + saldo + '" min="1" inputmode="numeric">' +
+      '</div>' +
+      '<div class="sheet-actions">' +
+      '<button class="btn-primary" id="pay-save">Registrar abono</button>' +
+      '<button class="btn-sm" id="pay-cancel">Cancelar</button>' +
+      '</div>'
+    modal.classList.remove('hidden')
+    $('#pay-close').onclick = hideModal
+    $('#pay-cancel').onclick = hideModal
+    $('#pay-save').onclick = function () {
+      var amt = parseInt($('#pay-amount').value)
+      if (amt > 0) { addPayment(id, amt); hideModal() }
+    }
+  }
+
+  function normPhone (p) {
+    var d = String(p || '').replace(/\D/g, '')
+    if (d.length === 9 && d.charAt(0) === '9') d = '56' + d
+    return d.length >= 11 ? d : null
+  }
+  function phoneFor (name) {
+    var n = String(name || '').trim().toLowerCase()
+    var best = null
+    var bt = -1
+    data.orders.forEach(function (o) {
+      if (String(o.name || '').trim().toLowerCase() === n && normPhone(o.phone)) {
+        var t = o.updatedAt || 0
+        if (t >= bt) { bt = t; best = normPhone(o.phone) }
+      }
+    })
+    return best
+  }
+  function waHref (o) {
+    var tel = phoneFor(o.name)
+    if (!tel) return null
+    var msg = 'Hola ' + o.name + ', te recuerdo el pago pendiente de $' + fmt(saldoOf(o)) + ' (' + o.trayCount + ' bandeja' + (o.trayCount !== 1 ? 's' : '') + ' de huevos). ¡Gracias!'
+    return 'https://wa.me/' + tel + '?text=' + encodeURIComponent(msg)
+  }
+  function buildClientsDatalist () {
+    var dl = $('#clientes-list')
+    if (!dl) return
+    var names = {}
+    data.orders.forEach(function (o) {
+      var n = String(o.name || '').trim()
+      if (n) names[n] = true
+    })
+    dl.innerHTML = Object.keys(names).sort().map(function (n) { return '<option value="' + esc(n) + '">' }).join('')
+  }
+
   // ===== Queries =====
   var searchTerm = ''
   function getPending () {
@@ -311,11 +459,8 @@
   }
   function dateInPeriod (dateStr, period) {
     if (period === 'all' || !dateStr) return true
-    var parts = String(dateStr).split('-')
-    if (parts.length !== 3) return true
-    var day, month, year
-    if (parts[0].length === 4) { year = parseInt(parts[0]); month = parseInt(parts[1]); day = parseInt(parts[2]) } else { day = parseInt(parts[0]); month = parseInt(parts[1]); year = parseInt(parts[2]) }
-    var d = new Date(year, month - 1, day)
+    var d = parseAnyDate(dateStr)
+    if (!d) return true
     var now = new Date()
     if (period === 'today') {
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
@@ -335,26 +480,53 @@
   }
 
   // ===== Accounting =====
+  function avgCostPerTray () {
+    var trays = 0
+    var spent = 0
+    data.purchases.forEach(function (p) { trays += p.boxCount * 6; spent += p.boxCount * p.pricePerTray })
+    return trays > 0 ? spent / trays : 0
+  }
   function calcAccounting (period) {
-    var delivered = getDelivered().filter(function (o) {
-      return dateInPeriod(o.paidDate || o.date, period || 'all')
+    period = period || 'all'
+    var paidOrders = getDelivered().filter(o => o.paid)
+    var totalCash = paidOrders.filter(o => o.payment === 'cash')
+      .filter(o => dateInPeriod(o.paidDate || o.date, period))
+      .reduce(function (s, o) { return s + o.total }, 0)
+    var abonos = 0
+    data.orders.forEach(function (o) {
+      ;(o.payments || []).forEach(function (p) {
+        if (dateInPeriod(p.date, period)) abonos += Number(p.amount) || 0
+      })
     })
-    var paidOrders = delivered.filter(o => o.paid)
-    var totalCash = paidOrders.filter(o => o.payment === 'cash').reduce(function (s, o) { return s + o.total }, 0)
-    var totalDebtorPaid = paidOrders.filter(o => o.payment === 'debtor').reduce(function (s, o) { return s + o.total }, 0)
-    var totalPendingDebt = getDebtors().reduce(function (s, o) { return s + o.total }, 0)
-    var totalEarned = totalCash + totalDebtorPaid
+    var legacyDebtorPaid = paidOrders.filter(o => o.payment === 'debtor' && !(o.payments && o.payments.length))
+      .filter(o => dateInPeriod(o.paidDate || o.date, period))
+      .reduce(function (s, o) { return s + o.total }, 0)
+    var collections = abonos + legacyDebtorPaid
+    var totalPendingDebt = data.orders.filter(o => o.payment === 'debtor' && !o.paid)
+      .reduce(function (s, o) { return s + saldoOf(o) }, 0)
+    var totalEarned = totalCash + collections
+
+    var invPeriod = data.purchases.filter(function (p) { return dateInPeriod(p.date, period) })
+      .reduce(function (s, p) { return s + p.boxCount * p.pricePerTray }, 0)
+    var totalSpent = data.purchases.reduce(function (s, p) { return s + p.boxCount * p.pricePerTray }, 0)
+
+    var deliveredInPeriod = getDelivered().filter(function (o) {
+      return dateInPeriod(o.deliveredAt || o.paidDate || o.date, period)
+    })
+    var deliveredTraysPeriod = deliveredInPeriod.reduce(function (s, o) { return s + o.trayCount }, 0)
+    var cogs = Math.round(deliveredTraysPeriod * avgCostPerTray())
+
+    var profit = totalEarned - cogs
+    var potentialProfit = profit + totalPendingDebt
     var totalBoxesBought = data.purchases.reduce(function (s, p) { return s + p.boxCount }, 0)
     var totalTraysBought = totalBoxesBought * 6
-    var totalSpent = data.purchases.reduce(function (s, p) { return s + p.boxCount * p.pricePerBox }, 0)
-    var profit = totalEarned - totalSpent
-    var potentialProfit = profit + totalPendingDebt
-    var deliveredTrays = delivered.reduce(function (s, o) { return s + o.trayCount }, 0)
+    var deliveredTrays = getDelivered().reduce(function (s, o) { return s + o.trayCount }, 0)
     var remainingTrays = Math.max(0, totalTraysBought - deliveredTrays)
     var overDelivered = deliveredTrays - totalTraysBought
-    return { totalCash: totalCash, totalDebtorPaid: totalDebtorPaid, totalPendingDebt: totalPendingDebt,
-      totalEarned: totalEarned, totalBoxesBought: totalBoxesBought, totalTraysBought: totalTraysBought,
-      totalSpent: totalSpent, profit: profit, potentialProfit: potentialProfit, deliveredTrays: deliveredTrays,
+    return { totalCash: totalCash, collections: collections, totalPendingDebt: totalPendingDebt,
+      totalEarned: totalEarned, invPeriod: invPeriod, totalSpent: totalSpent, cogs: cogs,
+      totalBoxesBought: totalBoxesBought, totalTraysBought: totalTraysBought,
+      profit: profit, potentialProfit: potentialProfit, deliveredTrays: deliveredTrays,
       remainingTrays: remainingTrays, overDelivered: overDelivered, totalOrders: data.orders.length }
   }
 
@@ -370,6 +542,7 @@
     renderAccounting()
     renderNotes()
     renderBadges()
+    buildClientsDatalist()
   }
 
   function renderBadges () {
@@ -414,14 +587,17 @@
   function renderDebtors () {
     var container = $('#lista-deudores')
     var list = getDebtors()
-    var oldDebtors = list.filter(function (o) { return daysSince(o.deliveredAt || o.date) > 7 })
+    var oldDebtors = list.filter(function (o) {
+      var d = daysSince(o.deliveredAt || o.date)
+      return d !== null && d > 7
+    })
     var html = ''
     if (oldDebtors.length > 0) {
       html += '<div class="alert-banner">' +
         '<div class="alert-banner-title">⚠️ Deudores con más de 7 días</div>' +
         '<ul class="alert-banner-list">' +
         oldDebtors.map(function (o) {
-          return '<li>' + esc(o.name) + ' — $' + fmt(o.total) + ' (' + daysSince(o.deliveredAt || o.date) + ' días)</li>'
+          return '<li>' + esc(o.name) + ' — $' + fmt(saldoOf(o)) + ' (' + daysSince(o.deliveredAt || o.date) + ' días)</li>'
         }).join('') +
         '</ul></div>'
     }
@@ -432,16 +608,22 @@
     }
     html += list.map(function (o) {
       var days = daysSince(o.deliveredAt || o.date)
-      var cls = days > 7 ? ' card-overdue' : ''
+      var overdue = days !== null && days > 7
+      var cls = overdue ? ' card-overdue' : ''
+      var pagado = paidAmountOf(o)
+      var wa = waHref(o)
       return '<div class="card' + cls + '" data-id="' + o.id + '">' +
         '<input type="checkbox" class="checkbox-lg chk-pay" data-id="' + o.id + '">' +
         '<div class="card-body">' +
         '<div class="card-name">' + esc(o.name) + '</div>' +
         '<div class="card-detail">' + o.trayCount + ' bandeja' + (o.trayCount !== 1 ? 's' : '') + ' · $' + fmt(o.total) + ' · ' + o.date + '</div>' +
-        (days > 7 ? '<span class="badge-overdue">' + days + ' días sin pagar</span>' : '') +
+        (pagado > 0 ? '<div class="saldo-line">Abonado: $' + fmt(pagado) + ' · Saldo: $' + fmt(saldoOf(o)) + '</div>' : '') +
+        (overdue ? '<span class="badge-overdue">' + days + ' días sin pagar</span>' : '') +
         '</div>' +
-        '<div class="card-amount">$' + fmt(o.total) + '</div>' +
+        '<div class="card-amount">$' + fmt(saldoOf(o)) + '</div>' +
         '<div class="card-actions">' +
+        (wa ? '<a class="btn-wa" href="' + wa + '" target="_blank" rel="noopener" title="Recordar pago por WhatsApp">📱</a>' : '') +
+        '<button class="btn-abono" data-id="' + o.id + '" title="Registrar abono">💵</button>' +
         '<button class="btn-edit btn-edit-order" data-id="' + o.id + '" title="Editar">✏️</button>' +
         '</div></div>'
     }).join('')
@@ -454,11 +636,12 @@
     var list = getPaidOrders().filter(function (o) {
       return dateInPeriod(o.paidDate || o.date, period)
     }).sort(function (a, b) {
-      var da = a.paidDate || a.date || ''
-      var db = b.paidDate || b.date || ''
-      var pa = da.split('-').reverse().join('')
-      var pb = db.split('-').reverse().join('')
-      return pb.localeCompare(pa)
+      var da = parseAnyDate(a.paidDate || a.date)
+      var db = parseAnyDate(b.paidDate || b.date)
+      if (!da && !db) return 0
+      if (!da) return 1
+      if (!db) return -1
+      return db - da
     })
     if (!list.length) {
       container.innerHTML = '<div class="empty-msg">No hay pagos registrados' + (period !== 'all' ? ' en este período' : '') + '</div>'
@@ -510,12 +693,14 @@
       '</div>' +
       '<div class="acct-group"><div class="acct-group-title">Ingresos</div>' +
       '<div class="acct-card"><span class="label">Ventas en efectivo</span><span class="value">$' + fmt(a.totalCash) + '</span></div>' +
-      '<div class="acct-card"><span class="label">Deudores pagados</span><span class="value">$' + fmt(a.totalDebtorPaid) + '</span></div>' +
-      '<div class="acct-card' + (a.totalPendingDebt > 0 ? ' acct-loss' : '') + '"><span class="label">Por cobrar (deudores)</span><span class="value">$' + fmt(a.totalPendingDebt) + '</span></div>' +
+      '<div class="acct-card"><span class="label">Abonos y cobranza</span><span class="value">$' + fmt(a.collections) + '</span></div>' +
+      '<div class="acct-card' + (a.totalPendingDebt > 0 ? ' acct-loss' : '') + '"><span class="label">Por cobrar (saldos)</span><span class="value">$' + fmt(a.totalPendingDebt) + '</span></div>' +
       '<div class="acct-card"><span class="label">Total ganado (recibido)</span><span class="value">$' + fmt(a.totalEarned) + '</span></div>' +
       '</div>' +
-      '<div class="acct-group"><div class="acct-group-title">Inversión</div>' +
-      '<div class="acct-card"><span class="label">Inversión en cajas</span><span class="value">$' + fmt(a.totalSpent) + '</span></div>' +
+      '<div class="acct-group"><div class="acct-group-title">Inversión y costos</div>' +
+      '<div class="acct-card"><span class="label">Inversión del período</span><span class="value">$' + fmt(a.invPeriod) + '</span></div>' +
+      '<div class="acct-card"><span class="label">Costo mercadería vendida</span><span class="value">$' + fmt(a.cogs) + '</span></div>' +
+      '<div class="acct-card"><span class="label">Inversión histórica</span><span class="value">$' + fmt(a.totalSpent) + '</span></div>' +
       '</div>' +
       '<div class="acct-group"><div class="acct-group-title">Inventario</div>' +
       '<div class="acct-card"><span class="label">Cajas compradas</span><span class="value">' + a.totalBoxesBought + '</span></div>' +
@@ -535,9 +720,11 @@
       textarea.addEventListener('input', function () {
         data.notes = textarea.value
         data.notesUpdatedAt = Date.now()
+        dirty = true
+        saveSyncMeta()
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
         if (timer) clearTimeout(timer)
-        timer = setTimeout(function () { syncToWorker() }, 300)
+        timer = setTimeout(function () { doSync(true) }, 400)
       })
     } else if (textarea && document.activeElement !== textarea) {
       var notesUpdated = data.notesUpdatedAt || 0
@@ -615,11 +802,13 @@
     var trays = parseInt($('#pedido-trays').value)
     var price = parseInt($('#pedido-price').value)
     var deliveryDate = $('#pedido-date').value || null
+    var phone = ($('#pedido-phone') && $('#pedido-phone').value.trim()) || ''
     if (!name || !trays || !price) return
-    addOrder(name, trays, price, deliveryDate)
+    addOrder(name, trays, price, deliveryDate, phone)
     $('#pedido-name').value = ''
     $('#pedido-trays').value = ''
     $('#pedido-date').value = ''
+    if ($('#pedido-phone')) $('#pedido-phone').value = ''
     var suggested = getLastSuggestedPrice()
     $('#pedido-price').value = suggested || ''
     $('#pedido-name').focus()
@@ -661,6 +850,10 @@
         { label: '✅ Sí, pagó', className: 'btn-primary', action: function () { markPaid(id); switchTab('pagados') } },
         { label: 'Cancelar', className: 'btn-sm', action: function () {} }
       ])
+    }
+    if (e.target.classList.contains('btn-abono')) {
+      e.preventDefault()
+      showPaymentModal(e.target.dataset.id)
     }
     if (e.target.classList.contains('btn-edit-order')) {
       e.preventDefault()
@@ -724,14 +917,51 @@
     updatePriceSuggestion()
   })
 
+  function mergeByIdPreferNewer (localArr, incomingArr) {
+    var m = new Map()
+    ;(localArr || []).forEach(function (x) { m.set(x.id, x) })
+    ;(incomingArr || []).forEach(function (x) {
+      var cur = m.get(x.id)
+      if (!cur || (x.updatedAt || 0) > (cur.updatedAt || 0)) m.set(x.id, x)
+    })
+    return Array.from(m.values())
+  }
+
   $('#btn-export').addEventListener('click', function () {
-    var exportData = { orders: data.orders, purchases: data.purchases, notes: data.notes || '', notesUpdatedAt: data.notesUpdatedAt || Date.now() }
+    var exportData = { orders: data.orders, purchases: data.purchases, notes: data.notes || '', notesUpdatedAt: data.notesUpdatedAt || Date.now(), deleted: data.deleted || [] }
     var json = JSON.stringify({ data: exportData }, null, 2)
     var blob = new Blob([json], { type: 'application/json' })
     var url = URL.createObjectURL(blob)
     var a = document.createElement('a')
     a.href = url
     a.download = 'huevos-backup-' + new Date().toISOString().slice(0, 10) + '.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  })
+
+  $('#btn-csv').addEventListener('click', function () {
+    var rows = [['Fecha', 'Entrega', 'Cliente', 'Telefono', 'Bandejas', 'Precio', 'Total', 'Estado', 'Fecha pago', 'Abonado', 'Saldo']]
+    data.orders.slice().sort(function (a, b) {
+      var da = parseAnyDate(a.date) || 0
+      var db = parseAnyDate(b.date) || 0
+      return db - da
+    }).forEach(function (o) {
+      rows.push([o.date, o.deliveryDate || '', o.name, o.phone || '', o.trayCount,
+        o.pricePerTray, o.total,
+        o.status === 'delivered' ? (o.paid ? 'pagado' : 'entregado (deuda)') : 'pendiente',
+        o.paidDate || '', paidAmountOf(o), saldoOf(o)])
+    })
+    var csv = '\ufeff' + rows.map(function (r) {
+      return r.map(function (c) {
+        c = String(c == null ? '' : c)
+        return /[;"\r\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c
+      }).join(';')
+    }).join('\r\n')
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    var url = URL.createObjectURL(blob)
+    var a = document.createElement('a')
+    a.href = url
+    a.download = 'huevos-ventas-' + new Date().toISOString().slice(0, 10) + '.csv'
     a.click()
     URL.revokeObjectURL(url)
   })
@@ -748,22 +978,25 @@
         var orders = importedData.orders || []
         var purchases = importedData.purchases || []
         if (!orders.length && !purchases.length) { alert('El archivo no contiene datos válidos'); return }
-        var seen = {}
-        var merged = []
-        orders.concat(data.orders).forEach(function (o) {
-          if (!seen[o.id]) { seen[o.id] = true; merged.push(o) }
+        data.orders = mergeByIdPreferNewer(data.orders, orders)
+        data.purchases = mergeByIdPreferNewer(data.purchases, purchases)
+        var delMap = new Map()
+        ;(data.deleted || []).forEach(function (d) { delMap.set(d.id, d) })
+        ;(importedData.deleted || []).forEach(function (d) {
+          var cur = delMap.get(d.id)
+          if (!cur || (d.at || 0) < (cur.at || 0)) delMap.set(d.id, { id: d.id, at: d.at || 0 })
         })
-        var seenP = {}
-        var mergedP = []
-        purchases.concat(data.purchases).forEach(function (p) {
-          if (!seenP[p.id]) { seenP[p.id] = true; mergedP.push(p) }
-        })
-        data.orders = merged
-        data.purchases = mergedP
-        if (importedData.notes) data.notes = importedData.notes
+        data.deleted = Array.from(delMap.values())
+        var deletedIds = new Set(data.deleted.map(function (d) { return d.id }))
+        data.orders = data.orders.filter(function (o) { return !deletedIds.has(o.id) })
+        data.purchases = data.purchases.filter(function (p) { return !deletedIds.has(p.id) })
+        if ((importedData.notesUpdatedAt || 0) > (data.notesUpdatedAt || 0)) {
+          data.notes = importedData.notes || ''
+          data.notesUpdatedAt = importedData.notesUpdatedAt
+        }
         normalizeOrders()
         saveData()
-        alert('Importados: ' + merged.length + ' pedidos, ' + mergedP.length + ' compras')
+        alert('Importados: ' + data.orders.length + ' pedidos, ' + data.purchases.length + ' compras')
       } catch (err) { alert('Error al leer: ' + err.message) }
     }
     reader.readAsText(file)
@@ -776,18 +1009,17 @@
   renderAll()
   var hdrDate = $('#header-date')
   if (hdrDate) hdrDate.textContent = new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
-  syncFromWorker()
-  setInterval(function () { syncFromWorker() }, 60000)
-  window.addEventListener('online', function () {
-    if (pendingSync) { pendingSync = false; syncToWorker() }
-    else syncFromWorker()
+  doSync(true)
+  setInterval(function () { doSync(false) }, 60000)
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) doSync(dirty)
   })
+  window.addEventListener('online', function () { doSync(true) })
   var syncBtn = $('#sync-status')
   if (syncBtn) {
     syncBtn.addEventListener('click', function () {
       if (syncing) return
-      if (pendingSync) { pendingSync = false; syncToWorker() }
-      else syncFromWorker()
+      doSync(true)
     })
   }
 

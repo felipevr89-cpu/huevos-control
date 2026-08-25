@@ -1,7 +1,32 @@
-// worker.js - Sync worker con merge seguro (v2)
-// Fix 1: no borra datos si llega un POST con data vacía
-// Fix 2: hace merge por id/updatedAt en vez de sobrescribir
+// worker.js - Sync worker con merge seguro (v3)
+// v2: no borra datos si llega un POST vacío; merge por id/updatedAt
+// v3: snapshots diarios automáticos en KV (backup server-side) + endpoints /api/backup
 import { mergeData } from "./merge.mjs";
+
+const SNAPSHOT_KEEP = 14;
+
+function dayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function takeSnapshot(env, key, dataObj) {
+  const snapKey = "snap:" + key + ":" + dayKey();
+  try {
+    const existing = await env.HUEVOS_KV.get(snapKey);
+    if (existing) return false;
+    await env.HUEVOS_KV.put(snapKey, JSON.stringify({ savedAt: new Date().toISOString(), data: dataObj }));
+    try {
+      const list = await env.HUEVOS_KV.list({ prefix: "snap:" + key + ":" });
+      const names = list.keys.map(k => k.name).sort();
+      while (names.length > SNAPSHOT_KEEP) {
+        await env.HUEVOS_KV.delete(names.shift());
+      }
+    } catch (_) {}
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
 export default {
   async fetch(request, env) {
@@ -47,6 +72,8 @@ export default {
 
         const merged = mergeData(base, incoming);
 
+        await takeSnapshot(env, key, base);
+
         const incomingHasData = (incoming.orders && incoming.orders.length) ||
           (incoming.purchases && incoming.purchases.length) ||
           (incoming.notes && incoming.notes.length) ||
@@ -60,6 +87,37 @@ export default {
 
         await env.HUEVOS_KV.put(key, JSON.stringify(merged));
         return new Response(JSON.stringify({ ok: true, synced: new Date().toISOString() }), { headers: corsHeaders });
+      }
+
+      if (request.method === "GET" && path === "/api/backup") {
+        const list = await env.HUEVOS_KV.list({ prefix: "snap:" + key + ":" });
+        const names = list.keys.map(k => k.name).sort();
+        const wanted = url.searchParams.get("date");
+        if (wanted) {
+          const snapKey = "snap:" + key + ":" + wanted;
+          const snap = await env.HUEVOS_KV.get(snapKey, { type: "json" });
+          if (!snap) {
+            return new Response(JSON.stringify({ error: "No snapshot for date", available: names.map(n => n.split(":").pop()) }), { status: 404, headers: corsHeaders });
+          }
+          return new Response(JSON.stringify({ snapshot: wanted, data: snap.data !== undefined ? snap.data : snap }), { headers: corsHeaders });
+        }
+        if (!names.length) {
+          return new Response(JSON.stringify({ error: "No snapshots yet", available: [] }), { status: 404, headers: corsHeaders });
+        }
+        const latestName = names[names.length - 1];
+        const snap = await env.HUEVOS_KV.get(latestName, { type: "json" });
+        return new Response(JSON.stringify({
+          snapshot: latestName.split(":").pop(),
+          data: snap.data !== undefined ? snap.data : snap,
+          available: names.map(n => n.split(":").pop())
+        }), { headers: corsHeaders });
+      }
+
+      if (request.method === "POST" && path === "/api/backup") {
+        const stored = await env.HUEVOS_KV.get(key, { type: "json" });
+        const base = stored || { orders: [], purchases: [], notes: "", notesUpdatedAt: 0, deleted: [] };
+        const created = await takeSnapshot(env, key, base);
+        return new Response(JSON.stringify({ ok: true, created: created, snapshot: dayKey() }), { headers: corsHeaders });
       }
 
       if (path === "/api/health") {

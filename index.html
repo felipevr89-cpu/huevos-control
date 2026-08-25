@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#f59e0b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -23,6 +23,7 @@
     <div class="header-actions">
       <span id="sync-status" class="sync-status sync-ok" title="Sincronizado">✅</span>
       <span id="sync-label" class="sync-label">OK</span>
+      <button id="btn-csv" title="Exportar planilla CSV">📊</button>
       <button id="btn-export" title="Exportar datos">📤</button>
       <button id="btn-import" title="Importar datos">📥</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
@@ -45,7 +46,12 @@
         <h2>Nuevo Pedido</h2>
         <div class="field">
           <label for="pedido-name">Nombre del cliente</label>
-          <input type="text" id="pedido-name" required>
+          <input type="text" id="pedido-name" required list="clientes-list" autocomplete="off">
+          <datalist id="clientes-list"></datalist>
+        </div>
+        <div class="field">
+          <label for="pedido-phone">Teléfono (opcional, para recordatorios)</label>
+          <input type="tel" id="pedido-phone" placeholder="+56 9 ..." autocomplete="off" inputmode="tel">
         </div>
         <div class="field-row">
           <div class="field">

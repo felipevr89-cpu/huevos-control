@@ -400,3 +400,21 @@ input:focus { border-color: var(--amber-400); }
 @media (min-width: 481px) {
   body { border-left: 1px solid var(--stone-200); border-right: 1px solid var(--stone-200); }
 }
+
+/* v9: abonos, WhatsApp, CSV */
+.btn-wa {
+  background: #25d366; border: none; border-radius: 8px;
+  width: 34px; height: 34px; min-width: 34px;
+  display: flex; align-items: center; justify-content: center;
+  text-decoration: none; font-size: 15px; flex-shrink: 0;
+}
+.btn-wa:active { background: #1da851; }
+.btn-abono {
+  background: var(--amber-100); border: 1px solid var(--amber-300);
+  border-radius: 8px; width: 34px; height: 34px; font-size: 14px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.btn-abono:active { background: var(--amber-200); }
+.saldo-line { font-size: .75rem; color: #b45309; font-weight: 700; margin-top: 2px; }
+.pay-info { font-size: .85rem; color: var(--stone-600); margin: 0 0 4px; line-height: 1.5; }
+#btn-csv { font-size: 16px; }
