@@ -5,6 +5,19 @@ import { mergeData } from "./merge.mjs";
 
 const SNAPSHOT_KEEP = 14;
 
+const RATE_LIMIT = 120;
+const RATE_WINDOW = 60000;
+const hitLog = new Map();
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const arr = (hitLog.get(ip) || []).filter(t => now - t < RATE_WINDOW);
+  arr.push(now);
+  hitLog.set(ip, arr);
+  if (hitLog.size > 5000) hitLog.clear();
+  return arr.length > RATE_LIMIT;
+}
+
 function dayKey() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -47,6 +60,11 @@ export default {
       "Access-Control-Allow-Origin": "*",
       "Content-Type": "application/json"
     };
+
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    if (isRateLimited(ip)) {
+      return new Response(JSON.stringify({ error: "Too many requests" }), { status: 429, headers: corsHeaders });
+    }
 
     try {
       const syncKey = request.headers.get("X-Sync-Key");

@@ -99,6 +99,12 @@
       changed = true
     }
 
+    if (remote.settings && (remote.settingsUpdatedAt || 0) > ((data.settings && data.settingsUpdatedAt) || 0)) {
+      data.settings = remote.settings
+      data.settingsUpdatedAt = remote.settingsUpdatedAt
+      changed = true
+    }
+
     if (!data.deleted) data.deleted = []
     normalizeOrders()
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
@@ -112,7 +118,8 @@
     var changedPurchases = since ? data.purchases.filter(function (p) { return (p.updatedAt || 0) > since }) : data.purchases
     var allDeleted = data.deleted || []
     var contentful = changedOrders.length > 0 || changedPurchases.length > 0 ||
-      allDeleted.length > 0 || (data.notes && data.notes.length > 0)
+      allDeleted.length > 0 || (data.notes && data.notes.length > 0) ||
+      ((data.notesUpdatedAt || 0) > since) || ((data.settingsUpdatedAt || 0) > since)
     if (!contentful && everUploaded && since > 0) {
       lastUpload = Date.now()
       saveSyncMeta()
@@ -124,7 +131,9 @@
         purchases: changedPurchases,
         notes: data.notes !== undefined ? data.notes : '',
         notesUpdatedAt: data.notesUpdatedAt || 0,
-        deleted: allDeleted
+        deleted: allDeleted,
+        settings: data.settings || null,
+        settingsUpdatedAt: data.settingsUpdatedAt || 0
       }
     }
     const res = await fetch(SYNC_API, {
@@ -443,6 +452,167 @@
     dl.innerHTML = Object.keys(names).sort().map(function (n) { return '<option value="' + esc(n) + '">' }).join('')
   }
 
+  function getSettings () {
+    if (!data.settings) {
+      data.settings = { businessName: '', stockAlertTrays: 10 }
+    }
+    return data.settings
+  }
+  function saveSettings (patch) {
+    var s = getSettings()
+    Object.keys(patch).forEach(function (k) { s[k] = patch[k] })
+    data.settingsUpdatedAt = Date.now()
+    saveData()
+  }
+
+  function showSettingsModal () {
+    var s = getSettings()
+    var modal = $('#modal')
+    modal.classList.add('modal-sheet')
+    $('#modal-msg').innerHTML = ''
+    var actions = $('#modal-actions')
+    actions.innerHTML = '<div class="sheet-head">' +
+      '<h3>⚙️ Ajustes</h3>' +
+      '<button class="sheet-close" id="set-close" aria-label="Cerrar">✕</button>' +
+      '</div>' +
+      '<div class="sheet-body">' +
+      '<label for="set-name">Nombre del negocio (aparece en comprobantes)</label>' +
+      '<input type="text" id="set-name" value="' + esc(s.businessName || '') + '" placeholder="Ej: Huevos Felipe" maxlength="40">' +
+      '<label for="set-stock">Alertar cuando queden menos de (bandejas)</label>' +
+      '<input type="number" id="set-stock" value="' + (s.stockAlertTrays || 10) + '" min="1" inputmode="numeric">' +
+      '<div class="set-info">v10 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
+      '</div>' +
+      '<div class="sheet-actions">' +
+      '<button class="btn-primary" id="set-save">Guardar</button>' +
+      '<button class="btn-sm" id="set-backup">Respaldar ahora</button>' +
+      '<button class="btn-sm" id="set-cancel">Cerrar</button>' +
+      '</div>'
+    modal.classList.remove('hidden')
+    $('#set-close').onclick = hideModal
+    $('#set-cancel').onclick = hideModal
+    $('#set-save').onclick = function () {
+      var name = $('#set-name').value.trim()
+      var stock = parseInt($('#set-stock').value) || 10
+      saveSettings({ businessName: name, stockAlertTrays: stock })
+      hideModal()
+      showToast('Ajustes guardados ✅')
+    }
+    $('#set-backup').onclick = function () {
+      var btn = $('#set-backup')
+      btn.disabled = true
+      btn.textContent = 'Respaldando…'
+      fetch(SYNC_API.replace('/api/sync', '/api/backup'), {
+        method: 'POST',
+        headers: { 'X-Sync-Key': SYNC_KEY }
+      }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        showToast('Respaldo creado en la nube ☁️')
+        btn.textContent = 'Respaldado ✓'
+      }).catch(function () {
+        showToast('No se pudo respaldar ⚠️')
+        btn.disabled = false
+        btn.textContent = 'Respaldar ahora'
+      })
+    }
+  }
+
+  function receiptText (o) {
+    var s = getSettings()
+    var lines = []
+    if (s.businessName) lines.push('🧾 ' + s.businessName)
+    lines.push('Cliente: ' + o.name)
+    lines.push(o.trayCount + ' bandeja' + (o.trayCount !== 1 ? 's' : '') + ' x $' + fmt(o.pricePerTray))
+    lines.push('Total: $' + fmt(o.total))
+    lines.push('✅ Pagado: ' + (o.paidDate || o.date))
+    lines.push('¡Gracias por su compra!')
+    return lines.join('\n')
+  }
+  function openReceipt (o) {
+    var url = 'https://wa.me/?text=' + encodeURIComponent(receiptText(o))
+    window.open(url, '_blank')
+  }
+
+  function getClientStats () {
+    var map = new Map()
+    data.orders.forEach(function (o) {
+      var key = String(o.name || '').trim().toLowerCase()
+      if (!key) return
+      var c = map.get(key)
+      if (!c) {
+        c = { name: String(o.name).trim(), phone: null, lastTs: 0, orders: 0, trays: 0, totalPaid: 0, debt: 0, lastDate: '' }
+        map.set(key, c)
+      }
+      c.orders++
+      c.trays += o.trayCount || 0
+      var pd = parseAnyDate(o.date)
+      var ts = pd ? pd.getTime() : 0
+      if (ts >= c.lastTs) {
+        c.lastTs = ts
+        c.lastDate = o.date
+        c.name = String(o.name).trim()
+        if (normPhone(o.phone)) c.phone = normPhone(o.phone)
+      }
+      c.debt += saldoOf(o)
+      if (o.paid) c.totalPaid += Number(o.total) || 0
+    })
+    return Array.from(map.values()).sort(function (a, b) { return b.lastTs - a.lastTs })
+  }
+
+  var searchTermClients = ''
+  function renderClients () {
+    var container = $('#lista-clientes')
+    if (!container) return
+    var list = getClientStats()
+    if (searchTermClients) {
+      list = list.filter(function (c) { return c.name.toLowerCase().indexOf(searchTermClients.toLowerCase()) !== -1 })
+    }
+    if (!list.length) {
+      container.innerHTML = '<div class="empty-msg">' + (searchTermClients ? 'Sin resultados para "' + esc(searchTermClients) + '"' : 'Aún no hay clientes. Crea un pedido primero.') + '</div>'
+      return
+    }
+    container.innerHTML = list.map(function (c) {
+      var wa = c.phone ? 'https://wa.me/' + c.phone : null
+      return '<div class="card client-card" data-name="' + esc(c.name) + '">' +
+        '<div class="card-body">' +
+        '<div class="card-name">' + esc(c.name) + '</div>' +
+        '<div class="card-detail">' + c.orders + ' pedido' + (c.orders !== 1 ? 's' : '') + ' · ' + c.trays + ' bandejas · Último: ' + c.lastDate + '</div>' +
+        (c.debt > 0 ? '<span class="badge-overdue">Debe: $' + fmt(c.debt) + '</span>' : '') +
+        '</div>' +
+        '<div class="card-amount">$' + fmt(c.totalPaid) + '</div>' +
+        '<div class="card-actions">' +
+        (wa ? '<a class="btn-wa" href="' + wa + '" target="_blank" rel="noopener" title="WhatsApp">📱</a>' : '') +
+        '</div></div>'
+    }).join('')
+  }
+
+  function showClientDetail (name) {
+    var key = String(name || '').trim().toLowerCase()
+    var orders = data.orders.filter(function (o) {
+      return String(o.name || '').trim().toLowerCase() === key
+    }).sort(function (a, b) {
+      var da = parseAnyDate(a.date) || 0
+      var db = parseAnyDate(b.date) || 0
+      return db - da
+    })
+    if (!orders.length) return
+    var modal = $('#modal')
+    modal.classList.add('modal-sheet')
+    $('#modal-msg').innerHTML = ''
+    var rows = orders.map(function (o) {
+      var estado = o.status === 'delivered' ? (o.paid ? '✅' : '💰') : '⏳'
+      return '<div class="hist-row"><span>' + estado + ' ' + esc(o.date) + '</span><span>' + o.trayCount + ' bj</span><strong>$' + fmt(o.total) + '</strong></div>'
+    }).join('')
+    $('#modal-actions').innerHTML = '<div class="sheet-head">' +
+      '<h3>' + esc(orders[0].name) + '</h3>' +
+      '<button class="sheet-close" id="cd-close" aria-label="Cerrar">✕</button>' +
+      '</div>' +
+      '<div class="sheet-body hist-list">' + rows + '</div>' +
+      '<div class="sheet-actions"><button class="btn-primary" id="cd-ok">Cerrar</button></div>'
+    modal.classList.remove('hidden')
+    $('#cd-close').onclick = hideModal
+    $('#cd-ok').onclick = hideModal
+  }
+
   // ===== Queries =====
   var searchTerm = ''
   function getPending () {
@@ -542,6 +712,7 @@
     renderAccounting()
     renderNotes()
     renderBadges()
+    renderClients()
     buildClientsDatalist()
   }
 
@@ -657,6 +828,7 @@
         '</div></div>' +
         '<div class="card-amount">$' + fmt(o.total) + '</div>' +
         '<div class="card-actions">' +
+        '<button class="btn-receipt" data-id="' + o.id + '" title="Enviar comprobante por WhatsApp">🧾</button>' +
         '<button class="btn-edit btn-edit-order" data-id="' + o.id + '" title="Editar">✏️</button>' +
         '</div></div>'
     }).join('')
@@ -681,11 +853,21 @@
     }).join('')
   }
 
+  function stockBannerHtml (a) {
+    var threshold = getSettings().stockAlertTrays || 10
+    if (a.remainingTrays > threshold) return ''
+    var msg = a.remainingTrays <= 0
+      ? '📦 Sin stock: entrega ' + a.deliveredTrays + ' de ' + a.totalTraysBought + ' bandejas compradas'
+      : '📦 Stock bajo: quedan ' + a.remainingTrays + ' bandejas (alerta < ' + threshold + ')'
+    return '<div class="alert-banner"><div class="alert-banner-title">' + msg + '</div></div>'
+  }
+
   function renderAccounting () {
     var period = $('#period-contabilidad') ? $('#period-contabilidad').value : 'all'
     var a = calcAccounting(period)
     var periodLabel = period === 'today' ? ' hoy' : period === 'week' ? ' esta semana' : period === 'month' ? ' este mes' : ''
     $('#resumen-contabilidad').innerHTML =
+      stockBannerHtml(a) +
       '<div class="acct-hero">' +
       '<div class="acct-hero-label">Ganancia neta' + periodLabel + '</div>' +
       '<div class="acct-hero-value">$' + fmt(a.profit) + '</div>' +
@@ -862,11 +1044,27 @@
   })
 
   $('#lista-pagados').addEventListener('click', function (e) {
+    if (e.target.classList.contains('btn-receipt')) {
+      e.preventDefault()
+      var o = data.orders.find(function (x) { return x.id === e.target.dataset.id })
+      if (o) openReceipt(o)
+    }
     if (e.target.classList.contains('btn-edit-order')) {
       e.preventDefault()
       showEditModal(e.target.dataset.id)
     }
   })
+
+  $('#lista-clientes').addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('a')) return
+    var card = e.target.closest ? e.target.closest('.client-card') : null
+    if (card && card.dataset.name) showClientDetail(card.dataset.name)
+  })
+  $('#buscar-cliente').addEventListener('input', function () {
+    searchTermClients = this.value.trim()
+    renderClients()
+  })
+  $('#btn-settings').addEventListener('click', showSettingsModal)
 
   var periodSelects = ['#period-pagados', '#period-contabilidad']
   periodSelects.forEach(function (sel) {
@@ -928,7 +1126,7 @@
   }
 
   $('#btn-export').addEventListener('click', function () {
-    var exportData = { orders: data.orders, purchases: data.purchases, notes: data.notes || '', notesUpdatedAt: data.notesUpdatedAt || Date.now(), deleted: data.deleted || [] }
+    var exportData = { orders: data.orders, purchases: data.purchases, notes: data.notes || '', notesUpdatedAt: data.notesUpdatedAt || Date.now(), deleted: data.deleted || [], settings: data.settings || null, settingsUpdatedAt: data.settingsUpdatedAt || 0 }
     var json = JSON.stringify({ data: exportData }, null, 2)
     var blob = new Blob([json], { type: 'application/json' })
     var url = URL.createObjectURL(blob)
@@ -993,6 +1191,10 @@
         if ((importedData.notesUpdatedAt || 0) > (data.notesUpdatedAt || 0)) {
           data.notes = importedData.notes || ''
           data.notesUpdatedAt = importedData.notesUpdatedAt
+        }
+        if (importedData.settings && (importedData.settingsUpdatedAt || 0) > ((data.settings && data.settingsUpdatedAt) || 0)) {
+          data.settings = importedData.settings
+          data.settingsUpdatedAt = importedData.settingsUpdatedAt
         }
         normalizeOrders()
         saveData()

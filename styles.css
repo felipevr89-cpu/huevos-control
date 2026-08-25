@@ -421,3 +421,22 @@ input:focus { border-color: var(--amber-400); }
 @media (max-width: 390px) {
   .sync-label { display: none; }
 }
+
+/* v10: clientes, comprobantes, ajustes */
+.btn-receipt {
+  background: var(--stone-100); border: 1px solid var(--stone-300);
+  border-radius: 8px; width: 34px; height: 34px; font-size: 14px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.btn-receipt:active { background: var(--stone-200); }
+.client-card { cursor: pointer; }
+.hist-list { max-height: 45vh; overflow-y: auto; }
+.hist-row {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 8px 4px; border-bottom: 1px solid var(--stone-200); font-size: .85rem;
+}
+.hist-row:last-child { border-bottom: none; }
+.set-info { font-size: .75rem; color: var(--stone-500); margin-top: 14px; line-height: 1.5; }
+@media (max-width: 390px) {
+  #tabs .tab { font-size: .62rem; padding: 8px 4px; gap: 2px; }
+}

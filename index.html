@@ -26,14 +26,16 @@
       <button id="btn-csv" title="Exportar planilla CSV">📊</button>
       <button id="btn-export" title="Exportar datos">📤</button>
       <button id="btn-import" title="Importar datos">📥</button>
+      <button id="btn-settings" title="Ajustes">⚙️</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
     </div>
   </header>
 
   <nav id="tabs">
     <button class="tab active" data-tab="pedidos">📋 Pedidos<span class="tab-badge" id="badge-pedidos"></span></button>
-    <button class="tab" data-tab="deudores">💰 Deudores<span class="tab-badge" id="badge-deudores"></span></button>
-    <button class="tab" data-tab="pagados">✅ Pagados</button>
+    <button class="tab" data-tab="deudores">💰 Deudas<span class="tab-badge" id="badge-deudores"></span></button>
+    <button class="tab" data-tab="pagados">✅ Pagos</button>
+    <button class="tab" data-tab="clientes">👥 Clientes</button>
     <button class="tab" data-tab="compras">📦 Compras</button>
     <button class="tab" data-tab="contabilidad">📊 Cta.</button>
     <button class="tab" data-tab="notas">📝 Notas</button>
@@ -95,6 +97,16 @@
         </select>
       </div>
       <div id="lista-pagados" class="list"></div>
+    </section>
+
+    <section id="tab-clientes" class="tab-content">
+      <h2>Clientes</h2>
+      <p class="subtitle">Historial y estadísticas por cliente (toca una tarjeta para ver detalle)</p>
+      <div class="field">
+        <label for="buscar-cliente">Buscar cliente</label>
+        <input type="text" id="buscar-cliente" placeholder="Buscar por nombre..." autocomplete="off">
+      </div>
+      <div id="lista-clientes" class="list"></div>
     </section>
 
     <section id="tab-compras" class="tab-content">

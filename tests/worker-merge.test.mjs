@@ -118,5 +118,29 @@ test("los deleted de más de 90 días se compactan", () => {
   assert.ok(r.deleted.some(d => d.id === "y"));
 });
 
+test("los settings del incoming ganan si son más recientes", () => {
+  const r = mergeData(base, { settings: { businessName: "Mi Huevería" }, settingsUpdatedAt: 500 });
+  assert.strictEqual(r.settings.businessName, "Mi Huevería");
+  assert.strictEqual(r.settingsUpdatedAt, 500);
+});
+
+test("los settings del base se conservan si el incoming no trae", () => {
+  const b = { ...base, settings: { businessName: "Base" }, settingsUpdatedAt: 900 };
+  const r = mergeData(b, { orders: [] });
+  assert.strictEqual(r.settings.businessName, "Base");
+  assert.strictEqual(r.settingsUpdatedAt, 900);
+});
+
+test("los settings antiguos del incoming no pisan los nuevos del base", () => {
+  const b = { ...base, settings: { businessName: "Nuevo" }, settingsUpdatedAt: 900 };
+  const r = mergeData(b, { settings: { businessName: "Viejo" }, settingsUpdatedAt: 100 });
+  assert.strictEqual(r.settings.businessName, "Nuevo");
+});
+
+test("sin settings en ninguna parte, el merge no explota", () => {
+  const r = mergeData(base, {});
+  assert.ok(r.orders.length >= 0);
+});
+
 console.log("\nResultado: " + passed + " pasados, " + failed + " fallados");
 process.exit(failed ? 1 : 0);

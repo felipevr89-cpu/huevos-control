@@ -1,12 +1,15 @@
 {
+  "id": "/",
+  "lang": "es",
   "name": "Control Huevos",
   "short_name": "Huevos",
-  "description": "Control de ventas de bandejas de huevos",
+  "description": "Control de ventas de bandejas de huevos: pedidos, deudores, pagos, clientes y contabilidad",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f59e0b",
   "theme_color": "#f59e0b",
   "orientation": "portrait",
+  "categories": ["business", "productivity", "finance"],
   "icons": [
     {
       "src": "icons/icon.svg",

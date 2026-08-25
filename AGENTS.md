@@ -47,16 +47,22 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
   "purchases": [{ "id", "boxCount", "pricePerBox", "markupPercent", "suggestedTrayPrice", "sellingPrice", "date" }],
   "notes": "string",
   "notesUpdatedAt": timestamp,
-  "deleted": [{ "id", "type", "at" }]
+  "deleted": [{ "id", "type", "at" }],
+  "settings": { "businessName", "stockAlertTrays" },
+  "settingsUpdatedAt": timestamp
 }
 ```
+
+Campos aditivos por pedido (v9+): `phone` (teléfono cliente), `payments: [{ amount, date, at }]` (abonos parciales; saldo = total - suma payments).
 
 ## Notas importantes
 - **NUNCA usar `write` tool** — falla silenciosamente. Usar siempre `bash` con heredoc `cat > file << 'EOF'`
 - El `wrangler.toml` raíz es solo para Pages; el del worker está en `worker/wrangler.toml`
-- Los datos del worker tienen 160 pedidos, 2 compras, notas
+- Los datos del worker tienen ~190 pedidos, 3 compras, notas
 - El usuario tiene otra persona con la app en su celular (sync entre dispositivos)
-- Los backups diarios se generan con `backup-huevos.sh`
+- Los backups diarios se generan con `backup-huevos.sh` Y con snapshots automáticos del worker (KV `snap:data:<key>:<fecha>`, últimos 14 días; endpoint `/api/backup`)
+- Tests: `node tests/worker-merge.test.mjs` (merge del worker) + smoke tests de integración de app.js
+- Sync v9+: bidireccional con auto-push, dirty-flag persistida en `huevos_sync_meta` (localStorage), retry con backoff
 
 ## Historial de bugs
 - `write` tool falla silenciosamente — archivos no se persisten. **NUNCA usar `write` tool**, usar `bash` con heredoc `cat > file << 'EOF'`

@@ -37,6 +37,15 @@ export function mergeData(base, incoming) {
     notesUpdatedAt = incNotesUpdated;
   }
 
+  // Ajustes del negocio: LWW por settingsUpdatedAt
+  let settings = base.settings;
+  let settingsUpdatedAt = base.settingsUpdatedAt || 0;
+  if (incoming.settings !== undefined && incoming.settings !== null &&
+      (incoming.settingsUpdatedAt || 0) >= settingsUpdatedAt) {
+    settings = incoming.settings;
+    settingsUpdatedAt = incoming.settingsUpdatedAt || 0;
+  }
+
   // Unión de ids borrados, conservando la fecha original más antigua por id
   const deletedMap = new Map();
   (base.deleted || []).forEach(d => {
@@ -57,5 +66,5 @@ export function mergeData(base, incoming) {
     if ((d.at || 0) >= cutoff) compactedDeleted.push(d);
   });
 
-  return { orders, purchases, notes, notesUpdatedAt, deleted: compactedDeleted };
+  return { orders, purchases, notes, notesUpdatedAt, deleted: compactedDeleted, settings, settingsUpdatedAt };
 }
