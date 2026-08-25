@@ -418,3 +418,6 @@ input:focus { border-color: var(--amber-400); }
 .saldo-line { font-size: .75rem; color: #b45309; font-weight: 700; margin-top: 2px; }
 .pay-info { font-size: .85rem; color: var(--stone-600); margin: 0 0 4px; line-height: 1.5; }
 #btn-csv { font-size: 16px; }
+@media (max-width: 390px) {
+  .sync-label { display: none; }
+}
