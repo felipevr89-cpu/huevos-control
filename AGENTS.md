@@ -70,3 +70,6 @@ Campos aditivos por pedido (v9+): `phone` (teléfono cliente), `payments: [{ amo
 - `CLOUDFLARE_API_TOKEN` no está configurado en GitHub Secrets
 - POST al worker sin data borra todos los datos (cuidado) — **CORREGIDO en worker v2** (merge seguro + rechazo de payload vacío)
 - Archivos locales se sobrescribieron con versión antigua (app sin sync, 5 tabs) — se desplegó basura con `--commit-dirty=true` → **CORREGIDO**: `deploy.sh` ahora despliega desde `git archive HEAD` y aborta si el repo está sucio. Nunca usar `--commit-dirty=true` a mano.
+- **pushLocal() usaba `o.id` en vez de `p.id`** para filtrar compras en delta push — compras modificadas no se pusheaban. **CORREGIDO** (linea 134 → `p.id`).
+- **Clock skew**: si el reloj del dispositivo estaba desincronizado, `updatedAt` nunca superaba `lastUpload` y los cambios no se pusheaban. **CORREGIDO**: worker ahora retorna `serverTime`; cliente detecta skew >5min y fuerza push completo (`lastUpload = 0`).
+- **syncMeta.lastError**: errores de sync ahora se guardan en localStorage para diagnóstico (tooltip del ícono de sync).
