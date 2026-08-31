@@ -16,12 +16,13 @@
   var lastUpload = syncMeta.lastUpload || 0
   var everUploaded = !!syncMeta.everUploaded
   var dirty = !!syncMeta.dirty
+  var clockSkewDetected = !!syncMeta.clockSkewDetected
 
   function loadSyncMeta () {
     try { return JSON.parse(localStorage.getItem(SYNC_META_KEY)) || {} } catch (_) { return {} }
   }
   function saveSyncMeta () {
-    try { localStorage.setItem(SYNC_META_KEY, JSON.stringify({ lastUpload: lastUpload, everUploaded: everUploaded, dirty: dirty })) } catch (_) {}
+    try { localStorage.setItem(SYNC_META_KEY, JSON.stringify({ lastUpload: lastUpload, everUploaded: everUploaded, dirty: dirty, clockSkewDetected: clockSkewDetected })) } catch (_) {}
   }
 
   function loadData () {
@@ -64,8 +65,20 @@
     const res = await fetch(SYNC_API, { headers: { 'X-Sync-Key': SYNC_KEY } })
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const json = await res.json()
+    // Clock skew detection: compare local time with server time
+    if (json.serverTime) {
+      var skew = Math.abs(Date.now() - json.serverTime)
+      if (skew > 300000) { // >5 minutes
+        clockSkewDetected = true
+        lastUpload = 0 // force full push on next pushLocal()
+        saveSyncMeta()
+      } else {
+        clockSkewDetected = false
+      }
+    }
     const remote = json.data || {}
-    const deletedIds = new Set((remote.deleted || []).map(d => d.id))
+    const remoteDeleted = remote.deleted || []
+    const deletedIds = new Set(remoteDeleted.map(d => d.id))
     const remoteOrders = (remote.orders || []).filter(o => !deletedIds.has(o.id))
     const remotePurchases = (remote.purchases || []).filter(p => !deletedIds.has(p.id))
     const remoteNotes = remote.notes || ''
@@ -80,7 +93,9 @@
       if (!loc) { byId.set(ro.id, ro); changed = true }
       else if ((ro.updatedAt || 0) > (loc.updatedAt || 0)) { Object.assign(loc, ro); changed = true }
     })
+    var prevOrderCount = data.orders.length
     data.orders = Array.from(byId.values()).filter(o => !deletedIds.has(o.id))
+    if (data.orders.length !== prevOrderCount) changed = true
 
     const purById = new Map()
     data.purchases.forEach(p => purById.set(p.id, p))
@@ -89,9 +104,9 @@
       if (!loc) { purById.set(rp.id, rp); changed = true }
       else if ((rp.updatedAt || 0) > (loc.updatedAt || 0)) { Object.assign(loc, rp); changed = true }
     })
+    var prevPurCount = data.purchases.length
     data.purchases = Array.from(purById.values()).filter(p => !deletedIds.has(p.id))
-
-    if (data.orders.length !== byId.size || data.purchases.length !== purById.size) changed = true
+    if (data.purchases.length !== prevPurCount) changed = true
 
     if (remoteNotesUpdated > (data.notesUpdatedAt || 0)) {
       data.notes = remoteNotes
@@ -106,6 +121,15 @@
     }
 
     if (!data.deleted) data.deleted = []
+    var delMap = new Map()
+    data.deleted.forEach(function (d) { delMap.set(d.id, d) })
+    remoteDeleted.forEach(function (d) {
+      var cur = delMap.get(d.id)
+      if (!cur || (d.at || 0) < cur.at) delMap.set(d.id, { id: d.id, at: d.at || 0 })
+    })
+    var mergedDeleted = Array.from(delMap.values())
+    if (mergedDeleted.length !== data.deleted.length) { data.deleted = mergedDeleted; changed = true }
+
     normalizeOrders()
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
     if (changed) renderAll()
@@ -114,8 +138,13 @@
 
   async function pushLocal () {
     var since = lastUpload > 0 ? lastUpload : 0
-    var changedOrders = since ? data.orders.filter(function (o) { return (o.updatedAt || 0) > since }) : data.orders
-    var changedPurchases = since ? data.purchases.filter(function (p) { return (p.updatedAt || 0) > since }) : data.purchases
+    var deletedIds = new Set((data.deleted || []).map(function (d) { return d.id }))
+    var changedOrders = since
+      ? data.orders.filter(function (o) { return (o.updatedAt || 0) > since && !deletedIds.has(o.id) })
+      : data.orders.filter(function (o) { return !deletedIds.has(o.id) })
+    var changedPurchases = since
+      ? data.purchases.filter(function (p) { return (p.updatedAt || 0) > since && !deletedIds.has(p.id) })
+      : data.purchases.filter(function (p) { return !deletedIds.has(p.id) })
     var allDeleted = data.deleted || []
     var contentful = changedOrders.length > 0 || changedPurchases.length > 0 ||
       allDeleted.length > 0 || (data.notes && data.notes.length > 0) ||
@@ -158,21 +187,27 @@
     updateSyncIcon('syncing')
     var okPull = true
     var okPush = true
-    try { await pullRemote() } catch (_) { okPull = false }
+    var lastErr = null
+    try { await pullRemote() } catch (e) { okPull = false; lastErr = 'pull: ' + (e.message || e) }
     if (okPull && (wantPush === true || dirty)) {
       try {
         await pushLocal()
         dirty = false
         saveSyncMeta()
-      } catch (_) { okPush = false }
+      } catch (e) { okPush = false; lastErr = 'push: ' + (e.message || e) }
     }
     syncing = false
     if (okPull && okPush) {
       failStreak = 0
       lastSyncOk = Date.now()
+      syncMeta.lastError = null
+      saveSyncMeta()
       updateSyncIcon('ok')
     } else {
       failStreak++
+      syncMeta.lastError = lastErr
+      syncMeta.lastErrorAt = Date.now()
+      saveSyncMeta()
       updateSyncIcon('error')
       var delay = Math.min(30000 * Math.pow(2, failStreak - 1), 300000)
       retryTimer = setTimeout(function () { retryTimer = null; doSync(true) }, delay)
@@ -204,7 +239,7 @@
     else { el.textContent = '⚠️'; if (label) label.textContent = 'Sin señal' }
     el.title = state === 'syncing' ? 'Sincronizando...'
       : state === 'ok' ? 'Sincronizado — toca para sincronizar ahora'
-      : 'Sin conexión — se reintentará automáticamente'
+      : 'Error: ' + (syncMeta.lastError || 'desconocido') + ' — se reintentará automáticamente'
   }
 
   function normalizeOrders () {

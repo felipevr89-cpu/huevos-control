@@ -142,5 +142,55 @@ test("sin settings en ninguna parte, el merge no explota", () => {
   assert.ok(r.orders.length >= 0);
 });
 
+// === Tests para bug de "resurrection" de pedidos borrados ===
+
+test("un pedido borrado en base NO reaparece aunque incoming lo traiga con updatedAt mayor", () => {
+  const b = {
+    orders: [{ id: "z", name: "Z", updatedAt: 100 }],
+    purchases: [],
+    deleted: [{ id: "z", at: 200 }]
+  };
+  const r = mergeData(b, { orders: [{ id: "z", name: "Z-mod", updatedAt: 500 }] });
+  assert.ok(!r.orders.some(o => o.id === "z"), "pedido borrado no debe reaparecer");
+});
+
+test("una compra borrada en base NO reaparece aunque incoming lo traiga con updatedAt mayor", () => {
+  const b = {
+    orders: [],
+    purchases: [{ id: "px", boxCount: 5, updatedAt: 100 }],
+    deleted: [{ id: "px", at: 200 }]
+  };
+  const r = mergeData(b, { purchases: [{ id: "px", boxCount: 10, updatedAt: 500 }] });
+  assert.ok(!r.purchases.some(p => p.id === "px"), "compra borrada no debe reaparecer");
+});
+
+test("borrado en incoming se propaga al resultado deleted", () => {
+  const now = Date.now();
+  const b = { orders: [{ id: "a", name: "A", updatedAt: 100 }], purchases: [], notes: "", notesUpdatedAt: 0 };
+  const r = mergeData(b, { deleted: [{ id: "a", at: now }] });
+  assert.ok(r.deleted.some(d => d.id === "a"));
+  assert.ok(!r.orders.some(o => o.id === "a"));
+});
+
+test("un pedido nuevo en incoming que está en deleted del base no se agrega", () => {
+  const b = {
+    orders: [],
+    purchases: [],
+    deleted: [{ id: "new", at: 100 }]
+  };
+  const r = mergeData(b, { orders: [{ id: "new", name: "New", updatedAt: 200 }] });
+  assert.ok(!r.orders.some(o => o.id === "new"));
+});
+
+test("un pedido en base que NO está deleted se conserva aunque incoming no lo traiga", () => {
+  const b = {
+    orders: [{ id: "keep", name: "Keep", updatedAt: 100 }],
+    purchases: [],
+    deleted: []
+  };
+  const r = mergeData(b, { orders: [] });
+  assert.ok(r.orders.some(o => o.id === "keep"));
+});
+
 console.log("\nResultado: " + passed + " pasados, " + failed + " fallados");
 process.exit(failed ? 1 : 0);

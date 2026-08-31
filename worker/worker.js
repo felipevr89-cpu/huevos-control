@@ -75,7 +75,7 @@ export default {
 
       if (request.method === "GET" && path === "/api/sync") {
         const stored = await env.HUEVOS_KV.get(key, { type: "json" });
-        return new Response(JSON.stringify({ data: stored || { orders: [], purchases: [], notes: "", deleted: [] } }), { headers: corsHeaders });
+        return new Response(JSON.stringify({ data: stored || { orders: [], purchases: [], notes: "", deleted: [] }, serverTime: Date.now() }), { headers: corsHeaders });
       }
 
       if ((request.method === "POST" || request.method === "PUT") && path === "/api/sync") {
