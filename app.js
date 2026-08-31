@@ -137,27 +137,14 @@
   }
 
   async function pushLocal () {
-    var since = lastUpload > 0 ? lastUpload : 0
     var deletedIds = new Set((data.deleted || []).map(function (d) { return d.id }))
-    var changedOrders = since
-      ? data.orders.filter(function (o) { return (o.updatedAt || 0) > since && !deletedIds.has(o.id) })
-      : data.orders.filter(function (o) { return !deletedIds.has(o.id) })
-    var changedPurchases = since
-      ? data.purchases.filter(function (p) { return (p.updatedAt || 0) > since && !deletedIds.has(p.id) })
-      : data.purchases.filter(function (p) { return !deletedIds.has(p.id) })
+    var allOrders = data.orders.filter(function (o) { return !deletedIds.has(o.id) })
+    var allPurchases = data.purchases.filter(function (p) { return !deletedIds.has(p.id) })
     var allDeleted = data.deleted || []
-    var contentful = changedOrders.length > 0 || changedPurchases.length > 0 ||
-      allDeleted.length > 0 || (data.notes && data.notes.length > 0) ||
-      ((data.notesUpdatedAt || 0) > since) || ((data.settingsUpdatedAt || 0) > since)
-    if (!contentful && everUploaded && since > 0) {
-      lastUpload = Date.now()
-      saveSyncMeta()
-      return true
-    }
     const payload = {
       data: {
-        orders: changedOrders,
-        purchases: changedPurchases,
+        orders: allOrders,
+        purchases: allPurchases,
         notes: data.notes !== undefined ? data.notes : '',
         notesUpdatedAt: data.notesUpdatedAt || 0,
         deleted: allDeleted,
@@ -1247,9 +1234,9 @@
   var hdrDate = $('#header-date')
   if (hdrDate) hdrDate.textContent = new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
   doSync(true)
-  setInterval(function () { doSync(false) }, 60000)
+  setInterval(function () { doSync(true) }, 60000)
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) doSync(dirty)
+    if (!document.hidden) doSync(true)
   })
   window.addEventListener('online', function () { doSync(true) })
   var syncBtn = $('#sync-status')
