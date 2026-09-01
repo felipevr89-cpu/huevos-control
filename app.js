@@ -516,7 +516,7 @@
       '<input type="text" id="set-name" value="' + esc(s.businessName || '') + '" placeholder="Ej: Huevos Felipe" maxlength="40">' +
       '<label for="set-stock">Alertar cuando queden menos de (bandejas)</label>' +
       '<input type="number" id="set-stock" value="' + (s.stockAlertTrays || 10) + '" min="1" inputmode="numeric">' +
-      '<div class="set-info">v14 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
+      '<div class="set-info">v15 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
       '</div>' +
       '<div class="sheet-actions">' +
       '<button class="btn-primary" id="set-save">Guardar</button>' +
@@ -819,19 +819,23 @@
       var cls = overdue ? ' card-overdue' : ''
       var pagado = paidAmountOf(o)
       var wa = waHref(o)
-      return '<div class="card' + cls + '" data-id="' + o.id + '">' +
+      return '<div class="card dcard' + cls + '" data-id="' + o.id + '">' +
+        '<div class="dc-row1">' +
         '<input type="checkbox" class="checkbox-lg chk-pay" data-id="' + o.id + '">' +
-        '<div class="card-body">' +
-        '<div class="card-name">' + esc(o.name) + '</div>' +
-        '<div class="card-detail">' + o.trayCount + ' bandeja' + (o.trayCount !== 1 ? 's' : '') + ' · $' + fmt(o.total) + ' · ' + o.date + '</div>' +
-        (pagado > 0 ? '<div class="saldo-line">Abonado: $' + fmt(pagado) + ' · Saldo: $' + fmt(saldoOf(o)) + '</div>' : '') +
-        (overdue ? '<span class="badge-overdue">' + days + ' días sin pagar</span>' : '') +
+        '<div class="dc-main">' +
+        '<div class="dc-name">' + esc(o.name) + '</div>' +
+        '<div class="dc-detail">' + o.trayCount + ' bandeja' + (o.trayCount !== 1 ? 's' : '') + ' · ' + o.date + '</div>' +
         '</div>' +
-        '<div class="card-amount">$' + fmt(saldoOf(o)) + '</div>' +
+        '<div class="dc-amt">$' + fmt(saldoOf(o)) + '</div>' +
+        '</div>' +
+        '<div class="dc-row2">' +
+        (overdue ? '<span class="badge-overdue">' + days + ' días sin pagar</span>' : '') +
+        (pagado > 0 ? '<span class="dc-paid">Abonado: $' + fmt(pagado) + '</span>' : '') +
         '<div class="card-actions">' +
         (wa ? '<a class="btn-wa" href="' + wa + '" target="_blank" rel="noopener" title="Recordar pago por WhatsApp">📱</a>' : '') +
         '<button class="btn-abono" data-id="' + o.id + '" title="Registrar abono">💵</button>' +
         '<button class="btn-edit btn-edit-order" data-id="' + o.id + '" title="Editar">✏️</button>' +
+        '</div>' +
         '</div></div>'
     }).join('')
     container.innerHTML = html

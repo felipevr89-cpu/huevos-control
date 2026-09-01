@@ -203,6 +203,18 @@ form {
 }
 form h2 { margin-bottom: var(--space-3); }
 
+/* v14: formulario de pedido compacto */
+#form-pedido { padding: 14px; }
+#form-pedido h2 { font-size: var(--fs-md); margin-bottom: var(--space-2); }
+#form-pedido .field { margin-bottom: var(--space-2); }
+#form-pedido .field label { font-size: var(--fs-sm); margin-bottom: 2px; }
+#form-pedido .field-row { gap: var(--space-2); }
+#form-pedido input[type="text"],
+#form-pedido input[type="number"],
+#form-pedido input[type="date"],
+#form-pedido input[type="tel"] { min-height: 44px; padding: 9px 12px; }
+#form-pedido .btn-primary { min-height: 44px; padding: 11px; }
+
 .field { margin-bottom: var(--space-3); }
 .field label {
   display: block; font-size: var(--fs-sm); font-weight: 600;
@@ -315,6 +327,23 @@ input:focus { border-color: var(--amber-500); box-shadow: 0 0 0 3px rgba(245,158
   white-space: nowrap;
 }
 .card-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+/* Deudores: tarjeta deudor en dos filas con nombre completo */
+.dcard { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 14px; }
+.dc-row1 { display: flex; align-items: center; gap: 10px; }
+.dc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dc-name {
+  font-weight: 700; font-size: var(--fs-md); color: var(--stone-800);
+  line-height: 1.3; overflow-wrap: anywhere; word-break: break-word;
+}
+.dc-detail { font-size: var(--fs-sm); color: var(--stone-500); line-height: 1.4; }
+.dc-amt {
+  font-size: var(--fs-xl); font-weight: 800; color: var(--amber-700);
+  white-space: nowrap; flex-shrink: 0; letter-spacing: -.01em;
+}
+.dc-row2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dc-paid { font-size: var(--fs-sm); color: var(--green-700); font-weight: 600; }
+.dcard .badge-overdue { margin-top: 0; }
+.dcard .card-actions { margin-left: auto; }
 .card-actions .btn-edit,
 .card-actions .btn-danger,
 .card-actions .btn-wa,

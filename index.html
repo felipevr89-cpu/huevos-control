@@ -51,7 +51,7 @@
           <datalist id="clientes-list"></datalist>
         </div>
         <div class="field">
-          <label for="pedido-phone">Teléfono (opcional, para recordatorios)</label>
+          <label for="pedido-phone">Teléfono (opcional)</label>
           <input type="tel" id="pedido-phone" placeholder="+56 9 ..." autocomplete="off" inputmode="tel">
         </div>
         <div class="field-row">
@@ -65,7 +65,7 @@
           </div>
         </div>
         <div class="field">
-          <label for="pedido-date">Fecha de entrega (opcional)</label>
+          <label for="pedido-date">Entrega (opcional)</label>
           <input type="date" id="pedido-date">
         </div>
         <button type="submit" class="btn-primary">Agregar Pedido</button>
@@ -190,7 +190,7 @@
   <button id="toast-undo">Deshacer</button>
 </div>
 
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 <script>
 if('serviceWorker' in navigator){navigator.serviceWorker.ready.then(function(r){if(r.active){r.active.postMessage({type:'SKIP_WAITING'})}});navigator.serviceWorker.addEventListener('controllerchange',function(){window.location.reload()})}
 </script>

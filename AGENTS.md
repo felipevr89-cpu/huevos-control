@@ -28,7 +28,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **Worker deploy**: `cd worker && wrangler deploy --config wrangler.toml`
 - **GitHub repo**: `felipevr89-cpu/huevos-control`
 - **Backups**: `/media/datos/Felipe/Cosas/Backups-Huevos/` (script `backup-huevos.sh`)
-- **Tag base**: `v14.0.0`
+- **Tag base**: `v15.0.0`
 
 ## Funcionalidades
 1. **Pedidos** — Crear, editar (✏️), eliminar, marcar como entregado
@@ -106,3 +106,4 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **v12: undo de toast se perdía** si llegaba otro toast. **CORREGIDO en v12** (stack de callbacks).
 - **v13: rediseño UI** (no bug funcional) — pass de diseño gráfico. Tamaños de toque ≥44px (botones de tarjeta 40px inline para no saturar ancho, botones primarios/header/tabs 44px), contraste mejorado (`card-detail` stone-500 = 4.8:1, `card-amount` amber-700, badges blanco/red-600), token de diseño (escala espaciado `--space-*`, tipografía `--fs-*`, `--min-touch`, `--radius-sm`), header degradado 72px con `top:72px` sticky para tabs sin solapamiento, inputs 46px con focus ring. Verificado sin desbordamiento a 390px. Cache SW `huevos-v13`, `app.js?v=13`, `set-info v13`. Screens: `/tmp/shots/`.
 - **v14: rediseño app móvil moderna** — header compacto 56px (título + pill de sync + botón menú hamburguesa ☰), drawer lateral derecho con acciones (Sincronizar ahora, Exportar CSV, Exportar JSON, Importar, Ajustes) + estado de sync, barra de navegación inferior fija (`#nav-menu.bottom-nav`) con 7 secciones icono+etiqueta y badge, FAB "＋" para nuevo pedido (scroll al form y foco en nombre), tabs `stone-500` inactivo/`amber-600` activo con indicador superior, `--min-touch:48px`. `updateSyncIcon` ya no usa `#sync-label` (eliminado) y actualiza `#drawer-sync`. Verificado: sin errores JS (console_err), sin desbordamiento a 390px en 5 tabs, drawer/FAB funcionales. Versiones `huevos-v14`, `app.js?v=14`, `set-info v14`. Screens: `/tmp/shots/`.
+- **v15: ajustes de layout post-v14** — formulario `#form-pedido` compactado (428→374px, inputs 44px, labels cortos "Teléfono (opcional)"/"Entrega (opcional)"); tarjetas de deudores reorganizadas en 2 filas (`.dcard`/`.dc-row1`/`.dc-row2`): fila1 = checkbox + nombre ("overflow-wrap:anywhere", ya no se trunca) + detalle "N bandejas · fecha" (SIN repetir el monto) + saldo destacado `.dc-amt`; fila2 = badge de días + "Abonado: $X" en verde + acciones a la derecha. Eliminada la redundancia `saldo-line` que repetía el saldo. Verificado a 390px sin desbordamiento. Versiones `huevos-v15`, `app.js?v=15`, `set-info v15`.

@@ -1,4 +1,4 @@
-const CACHE = 'huevos-v14'
+const CACHE = 'huevos-v15'
 const STATIC_FILES = ['/', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png']
 const DYNAMIC_FILES = ['/index.html', '/styles.css', '/app.js', '/manifest.json']
 
