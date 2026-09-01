@@ -28,7 +28,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **Worker deploy**: `cd worker && wrangler deploy --config wrangler.toml`
 - **GitHub repo**: `felipevr89-cpu/huevos-control`
 - **Backups**: `/media/datos/Felipe/Cosas/Backups-Huevos/` (script `backup-huevos.sh`)
-- **Tag base**: `v11.0.0`
+- **Tag base**: `v12.0.0`
 
 ## Funcionalidades
 1. **Pedidos** — Crear, editar (✏️), eliminar, marcar como entregado
@@ -82,8 +82,8 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - El usuario tiene otra persona con la app en su celular (sync entre dispositivos)
 - Los backups diarios se generan con `backup-huevos.sh` Y con snapshots automáticos del worker (KV `snap:data:<key>:<fecha>`, últimos 14 días; endpoint `/api/backup`)
 - Tests: `node tests/worker-merge.test.mjs` (merge del worker)
-- **SW v11**: `cache: 'no-cache'` para archivos dinámicos, `huevos-v11` cache name
-- **app.js** se carga con `?v=11` query string para bustear cache del navegador
+- **SW v12**: `cache: 'no-cache'` para archivos dinámicos, `huevos-v12` cache name
+- **app.js** se carga con `?v=12` query string para bustear cache del navegador
 
 ## Historial de bugs
 - `write` tool falla silenciosamente — archivos no se persisten. **NUNCA usar `write` tool**, usar `bash` con heredoc `cat > file << 'EOF'`
@@ -95,3 +95,12 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **Clock skew**: si el reloj del dispositivo estaba desincronizado, `updatedAt` nunca superaba `lastUpload` y los cambios no se pusheaban. **CORREGIDO**: worker retorna `serverTime`; cliente detecta skew >5min y fuerza push completo.
 - **Push delta no enviaba cambios**: El filtro `updatedAt > lastUpload` fallaba si el reloj estaba mal o `lastUpload` era incorrecto. **CORREGIDO en v11**: `pushLocal()` siempre envía TODOS los pedidos/compras. Worker merge LWW maneja deduplicación.
 - **SW servía app.js cacheado**: El Service Worker cacheaba `app.js` y no detectaba actualizaciones. **CORREGIDO en v11**: cache name `huevos-v11`, `cache: 'no-cache'` para dinámicos, `?v=11` en script tag.
+- **v12: contabilidad mostraba NaN** — el `avgCostPerTray`/`invPeriod`/`totalSpent` usaban `p.pricePerTray` en compras que tienen `pricePerBox`. **CORREGIDO en v12** (app.js `avgCostPerTray`, `calcAccounting`).
+- **v12: crash por quota de localStorage** — `localStorage.setItem` sin try/catch. **CORREGIDO en v12** (`saveData`, `pullRemote`, notas). Ahora muestra toast "Sin espacio".
+- **v12: race condition en worker** — dos POSTs simultáneos podían perder datos (read-modify-write no atómico). **CORREGIDO en v12**: re-merge contra estado fresco en el write.
+- **v12: rate limiter reseteaba todos los límites** — `hitLog.clear()` a las 5000 entradas. **CORREGIDO en v12**: evicta ~20% en vez de borrar todo.
+- **v12: `pricePerTray` en sync merge podría sobreescribir `payments` locales con `[]`**. **CORREGIDO en v12**: conserva payments locales si el remoto no trae.
+- **v12: semana excluía domingo** (`start.getDay() - 1`). **CORREGIDO en v12**: `(getDay() + 6) % 7`.
+- **v12: crash si no había radio de markup seleccionado** (`null.value`). **CORREGIDO en v12**.
+- **v12: aceptaba números negativos** en pedidos/compras. **CORREGIDO en v12** (valida `>= 1`).
+- **v12: undo de toast se perdía** si llegaba otro toast. **CORREGIDO en v12** (stack de callbacks).
