@@ -10,7 +10,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - `app.js` — Lógica principal (~1280 líneas)
 - `index.html` — Estructura HTML (~187 líneas)
 - `styles.css` — Estilos (~330 líneas)
-- `sw.js` — Service Worker (cache v11, network-first para dinámicos)
+- `sw.js` — Service Worker (cache v16, network-first para dinámicos)
 - `manifest.json` — Manifest PWA
 - `icons/` — Iconos de la app
 - `worker/worker.js` — Código del worker de sync (merge seguro v3 + serverTime)
@@ -67,7 +67,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 }
 ```
 
-## Cómo funciona el sync (v11)
+## Cómo funciona el sync (v16)
 - **Pull**: GET al worker, retorna todos los datos + `serverTime`
 - **Push**: POST al worker con TODOS los pedidos/compras (no solo delta). Worker hace merge LWW por `updatedAt`
 - **Clock skew**: En cada pull se calcula `serverOffset = serverTime - Date.now()` y todos los `updatedAt`/`at` generados localmente usan `serverNow()` (reloj alineado al servidor), para que el merge LWW sea justo entre dispositivos aunque los relojes difieran. Si el skew local >5min además se fuerza push completo (`lastUpload = 0`).
@@ -78,7 +78,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 ## Notas importantes
 - **NUNCA usar `write` tool** — falla silenciosamente. Usar siempre `bash` con heredoc `cat > file << 'EOF'`
 - El `wrangler.toml` raíz es solo para Pages; el del worker está en `worker/wrangler.toml`
-- Los datos del worker tienen ~220 pedidos, 3 compras, notas
+- Los datos del worker tienen ~225 pedidos, 3 compras, notas (conteo vivo: 223 al momento de v16)
 - El usuario tiene otra persona con la app en su celular (sync entre dispositivos)
 - Los backups diarios se generan con `backup-huevos.sh` Y con snapshots automáticos del worker (KV `snap:data:<key>:<fecha>`, últimos 14 días; endpoint `/api/backup`)
 - Tests: `node tests/worker-merge.test.mjs` (merge del worker)
