@@ -510,7 +510,7 @@
       '<input type="text" id="set-name" value="' + esc(s.businessName || '') + '" placeholder="Ej: Huevos Felipe" maxlength="40">' +
       '<label for="set-stock">Alertar cuando queden menos de (bandejas)</label>' +
       '<input type="number" id="set-stock" value="' + (s.stockAlertTrays || 10) + '" min="1" inputmode="numeric">' +
-      '<div class="set-info">v12 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
+      '<div class="set-info">v13 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
       '</div>' +
       '<div class="sheet-actions">' +
       '<button class="btn-primary" id="set-save">Guardar</button>' +

@@ -28,7 +28,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **Worker deploy**: `cd worker && wrangler deploy --config wrangler.toml`
 - **GitHub repo**: `felipevr89-cpu/huevos-control`
 - **Backups**: `/media/datos/Felipe/Cosas/Backups-Huevos/` (script `backup-huevos.sh`)
-- **Tag base**: `v12.0.0`
+- **Tag base**: `v13.0.0`
 
 ## Funcionalidades
 1. **Pedidos** — Crear, editar (✏️), eliminar, marcar como entregado
@@ -104,3 +104,4 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **v12: crash si no había radio de markup seleccionado** (`null.value`). **CORREGIDO en v12**.
 - **v12: aceptaba números negativos** en pedidos/compras. **CORREGIDO en v12** (valida `>= 1`).
 - **v12: undo de toast se perdía** si llegaba otro toast. **CORREGIDO en v12** (stack de callbacks).
+- **v13: rediseño UI** (no bug funcional) — pass de diseño gráfico. Tamaños de toque ≥44px (botones de tarjeta 40px inline para no saturar ancho, botones primarios/header/tabs 44px), contraste mejorado (`card-detail` stone-500 = 4.8:1, `card-amount` amber-700, badges blanco/red-600), token de diseño (escala espaciado `--space-*`, tipografía `--fs-*`, `--min-touch`, `--radius-sm`), header degradado 72px con `top:72px` sticky para tabs sin solapamiento, inputs 46px con focus ring. Verificado sin desbordamiento a 390px. Cache SW `huevos-v13`, `app.js?v=13`, `set-info v13`. Screens: `/tmp/shots/`.
