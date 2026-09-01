@@ -14,7 +14,12 @@ function isRateLimited(ip) {
   const arr = (hitLog.get(ip) || []).filter(t => now - t < RATE_WINDOW);
   arr.push(now);
   hitLog.set(ip, arr);
-  if (hitLog.size > 5000) hitLog.clear();
+  if (hitLog.size > 5000) {
+    // Evict ~20% of oldest entries instead of clearing everyone's limits
+    const keys = [...hitLog.keys()];
+    const toEvict = Math.floor(keys.length * 0.2);
+    for (let i = 0; i < toEvict && i < keys.length; i++) hitLog.delete(keys[i]);
+  }
   return arr.length > RATE_LIMIT;
 }
 
@@ -51,7 +56,8 @@ export default {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, X-Sync-Key"
+          "Access-Control-Allow-Headers": "Content-Type, X-Sync-Key",
+          "Access-Control-Max-Age": "86400"
         }
       });
     }
@@ -85,17 +91,16 @@ export default {
         }
         const incoming = body.data || {};
 
-        const stored = await env.HUEVOS_KV.get(key, { type: "json" });
-        const base = stored || { orders: [], purchases: [], notes: "", notesUpdatedAt: 0, deleted: [] };
-
-        const merged = mergeData(base, incoming);
-
-        await takeSnapshot(env, key, base);
-
+        // Rechazar payloads vacíos ANTES de hacer merge o gastar un snapshot
         const incomingHasData = (incoming.orders && incoming.orders.length) ||
           (incoming.purchases && incoming.purchases.length) ||
           (incoming.notes && incoming.notes.length) ||
           (incoming.deleted && incoming.deleted.length);
+
+        // Leer el estado actual (base) para el merge
+        const stored = await env.HUEVOS_KV.get(key, { type: "json" });
+        const base = stored || { orders: [], purchases: [], notes: "", notesUpdatedAt: 0, deleted: [] };
+
         const baseHasData = (base.orders && base.orders.length) ||
           (base.purchases && base.purchases.length) ||
           base.notes;
@@ -103,7 +108,20 @@ export default {
           return new Response(JSON.stringify({ error: "Empty payload rejected" }), { status: 400, headers: corsHeaders });
         }
 
-        await env.HUEVOS_KV.put(key, JSON.stringify(merged));
+        await takeSnapshot(env, key, base);
+
+        // Write con retry para mitigar races: si el KV cambió entre la lectura
+        // y la escritura, releemos y re-mergeamos contra el estado más fresco.
+        let written = mergeData(base, incoming);
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await env.HUEVOS_KV.put(key, JSON.stringify(written));
+          const after = await env.HUEVOS_KV.get(key, { type: "json" });
+          const afterStr = JSON.stringify(after || null);
+          if (afterStr === JSON.stringify(written)) break;
+          // Otro writer avanzó el estado; re-mergeamos contra el más fresco.
+          written = mergeData(after, incoming);
+        }
+
         return new Response(JSON.stringify({ ok: true, synced: new Date().toISOString() }), { headers: corsHeaders });
       }
 
@@ -144,7 +162,8 @@ export default {
 
       return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: corsHeaders });
     } catch (e) {
-      return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
+      console.error("Worker error:", e && e.message);
+      return new Response(JSON.stringify({ error: "Internal error" }), { status: 500, headers: corsHeaders });
     }
   }
 };

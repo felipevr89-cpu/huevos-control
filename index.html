@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#f59e0b">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -23,10 +23,10 @@
     <div class="header-actions">
       <span id="sync-status" class="sync-status sync-ok" title="Sincronizado">✅</span>
       <span id="sync-label" class="sync-label">OK</span>
-      <button id="btn-csv" title="Exportar planilla CSV">📊</button>
-      <button id="btn-export" title="Exportar datos">📤</button>
-      <button id="btn-import" title="Importar datos">📥</button>
-      <button id="btn-settings" title="Ajustes">⚙️</button>
+      <button id="btn-csv" title="Exportar planilla CSV" aria-label="Exportar planilla CSV">📊</button>
+      <button id="btn-export" title="Exportar datos" aria-label="Exportar datos">📤</button>
+      <button id="btn-import" title="Importar datos" aria-label="Importar datos">📥</button>
+      <button id="btn-settings" title="Ajustes" aria-label="Ajustes">⚙️</button>
       <input type="file" id="import-file" accept=".json" style="display:none">
     </div>
   </header>
@@ -179,7 +179,7 @@
   <button id="toast-undo">Deshacer</button>
 </div>
 
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 <script>
 if('serviceWorker' in navigator){navigator.serviceWorker.ready.then(function(r){if(r.active){r.active.postMessage({type:'SKIP_WAITING'})}});navigator.serviceWorker.addEventListener('controllerchange',function(){window.location.reload()})}
 </script>

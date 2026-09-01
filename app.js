@@ -22,7 +22,7 @@
     try { return JSON.parse(localStorage.getItem(SYNC_META_KEY)) || {} } catch (_) { return {} }
   }
   function saveSyncMeta () {
-    try { localStorage.setItem(SYNC_META_KEY, JSON.stringify({ lastUpload: lastUpload, everUploaded: everUploaded, dirty: dirty, clockSkewDetected: clockSkewDetected })) } catch (_) {}
+    try { localStorage.setItem(SYNC_META_KEY, JSON.stringify({ lastUpload: lastUpload, everUploaded: everUploaded, dirty: dirty, clockSkewDetected: clockSkewDetected, lastError: syncMeta.lastError, lastErrorAt: syncMeta.lastErrorAt })) } catch (_) {}
   }
 
   function loadData () {
@@ -36,7 +36,7 @@
   function saveData () {
     dirty = true
     saveSyncMeta()
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch (e) { showToast('Sin espacio — exporta y limpia datos'); return }
     renderAll()
     scheduleSync(true, 500)
   }
@@ -48,7 +48,7 @@
     if (!s) return null
     var parts = String(s).split('-')
     if (parts.length !== 3) return null
-    var a = parseInt(parts[0]); var b = parseInt(parts[1]); var c = parseInt(parts[2])
+    var a = parseInt(parts[0], 10); var b = parseInt(parts[1], 10); var c = parseInt(parts[2], 10)
     if (!a || !b || !c) return null
     if (parts[0].length === 4) return new Date(a, b - 1, c)
     return new Date(c, b - 1, a)
@@ -57,7 +57,10 @@
   function daysSince (dateStr) {
     var d = parseAnyDate(dateStr)
     if (!d) return null
-    return Math.floor((new Date() - d) / (1000 * 60 * 60 * 24))
+    var now = new Date()
+    var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    var dateStart = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    return Math.floor((todayStart - dateStart) / (1000 * 60 * 60 * 24))
   }
 
   // ===== SYNC =====
@@ -91,7 +94,12 @@
     remoteOrders.forEach(ro => {
       const loc = byId.get(ro.id)
       if (!loc) { byId.set(ro.id, ro); changed = true }
-      else if ((ro.updatedAt || 0) > (loc.updatedAt || 0)) { Object.assign(loc, ro); changed = true }
+      else if ((ro.updatedAt || 0) > (loc.updatedAt || 0)) {
+        var locPayments = loc.payments
+        Object.assign(loc, ro)
+        if (locPayments && locPayments.length && (!ro.payments || !ro.payments.length)) loc.payments = locPayments
+        changed = true
+      }
     })
     var prevOrderCount = data.orders.length
     data.orders = Array.from(byId.values()).filter(o => !deletedIds.has(o.id))
@@ -131,7 +139,7 @@
     if (mergedDeleted.length !== data.deleted.length) { data.deleted = mergedDeleted; changed = true }
 
     normalizeOrders()
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch (e) { showToast('Sin espacio — exporta y limpia datos') }
     if (changed) renderAll()
     return true
   }
@@ -351,11 +359,11 @@
     $('#edit-cancel').onclick = hideModal
     $('#edit-save').onclick = function () {
       var n = $('#edit-name').value.trim()
-      var t = parseInt($('#edit-trays').value)
-      var p = parseInt($('#edit-price').value)
+      var t = parseInt($('#edit-trays').value, 10)
+      var p = parseInt($('#edit-price').value, 10)
       var dd = $('#edit-delivery').value
       var ph = $('#edit-phone') ? $('#edit-phone').value : undefined
-      if (n && t && p) { editOrder(id, n, t, p, dd, ph); hideModal() }
+      if (n && t >= 1 && p >= 1) { editOrder(id, n, t, p, dd, ph); hideModal() }
     }
   }
 
@@ -435,7 +443,7 @@
     $('#pay-close').onclick = hideModal
     $('#pay-cancel').onclick = hideModal
     $('#pay-save').onclick = function () {
-      var amt = parseInt($('#pay-amount').value)
+      var amt = parseInt($('#pay-amount').value, 10)
       if (amt > 0) { addPayment(id, amt); hideModal() }
     }
   }
@@ -502,7 +510,7 @@
       '<input type="text" id="set-name" value="' + esc(s.businessName || '') + '" placeholder="Ej: Huevos Felipe" maxlength="40">' +
       '<label for="set-stock">Alertar cuando queden menos de (bandejas)</label>' +
       '<input type="number" id="set-stock" value="' + (s.stockAlertTrays || 10) + '" min="1" inputmode="numeric">' +
-      '<div class="set-info">v10 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
+      '<div class="set-info">v12 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
       '</div>' +
       '<div class="sheet-actions">' +
       '<button class="btn-primary" id="set-save">Guardar</button>' +
@@ -514,7 +522,7 @@
     $('#set-cancel').onclick = hideModal
     $('#set-save').onclick = function () {
       var name = $('#set-name').value.trim()
-      var stock = parseInt($('#set-stock').value) || 10
+      var stock = parseInt($('#set-stock').value, 10) || 10
       saveSettings({ businessName: name, stockAlertTrays: stock })
       hideModal()
       showToast('Ajustes guardados ✅')
@@ -660,7 +668,7 @@
     if (period === 'week') {
       var start = new Date(now)
       start.setHours(0, 0, 0, 0)
-      start.setDate(start.getDate() - start.getDay() + 1)
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7))
       var end = new Date(start)
       end.setDate(end.getDate() + 6)
       return d >= start && d <= end
@@ -675,7 +683,7 @@
   function avgCostPerTray () {
     var trays = 0
     var spent = 0
-    data.purchases.forEach(function (p) { trays += p.boxCount * 6; spent += p.boxCount * p.pricePerTray })
+    data.purchases.forEach(function (p) { trays += p.boxCount * 6; spent += p.boxCount * p.pricePerBox })
     return trays > 0 ? spent / trays : 0
   }
   function calcAccounting (period) {
@@ -699,8 +707,8 @@
     var totalEarned = totalCash + collections
 
     var invPeriod = data.purchases.filter(function (p) { return dateInPeriod(p.date, period) })
-      .reduce(function (s, p) { return s + p.boxCount * p.pricePerTray }, 0)
-    var totalSpent = data.purchases.reduce(function (s, p) { return s + p.boxCount * p.pricePerTray }, 0)
+      .reduce(function (s, p) { return s + p.boxCount * p.pricePerBox }, 0)
+    var totalSpent = data.purchases.reduce(function (s, p) { return s + p.boxCount * p.pricePerBox }, 0)
 
     var deliveredInPeriod = getDelivered().filter(function (o) {
       return dateInPeriod(o.deliveredAt || o.paidDate || o.date, period)
@@ -919,19 +927,22 @@
     var textarea = $('#notas-textarea')
     if (textarea && !textarea._listening) {
       textarea._listening = true
+      textarea._lastLocalEdit = 0
       textarea.value = data.notes || ''
       var timer = null
       textarea.addEventListener('input', function () {
         data.notes = textarea.value
         data.notesUpdatedAt = Date.now()
+        textarea._lastLocalEdit = Date.now()
         dirty = true
         saveSyncMeta()
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch (_) {}
         if (timer) clearTimeout(timer)
         timer = setTimeout(function () { doSync(true) }, 400)
       })
     } else if (textarea && document.activeElement !== textarea) {
       var notesUpdated = data.notesUpdatedAt || 0
+      if (textarea._lastLocalEdit && textarea._lastLocalEdit > notesUpdated) return
       if (textarea.value !== (data.notes || '')) textarea.value = data.notes || ''
       textarea._lastNotesUpdated = notesUpdated
     }
@@ -942,10 +953,13 @@
   function fmt (n) { return Number(n).toLocaleString('es-CL') }
 
   function switchTab (name) {
+    var tab = document.querySelector('.tab[data-tab="' + name + '"]')
+    var content = document.getElementById('tab-' + name)
+    if (!tab || !content) return
     $$('.tab').forEach(function (t) { t.classList.remove('active') })
     $$('.tab-content').forEach(function (c) { c.classList.remove('active') })
-    document.querySelector('.tab[data-tab="' + name + '"]').classList.add('active')
-    document.getElementById('tab-' + name).classList.add('active')
+    tab.classList.add('active')
+    content.classList.add('active')
   }
 
   function showModal (msg, buttons) {
@@ -966,23 +980,23 @@
   $('#modal').addEventListener('click', function (e) { if (e.target === e.currentTarget) hideModal() })
 
   var toastTimer = null
-  var toastUndo = null
+  var toastUndoStack = []
   function showToast (msg, undoFn) {
     var el = $('#toast')
     $('#toast-msg').textContent = msg
-    $('#toast-undo').style.display = undoFn ? '' : 'none'
-    toastUndo = undoFn || null
+    if (undoFn) toastUndoStack.push(undoFn)
+    $('#toast-undo').style.display = toastUndoStack.length ? '' : 'none'
     el.classList.remove('hidden')
     if (toastTimer) clearTimeout(toastTimer)
     toastTimer = setTimeout(hideToast, 5000)
   }
   function hideToast () {
     $('#toast').classList.add('hidden')
-    toastUndo = null
+    toastUndoStack = []
   }
   $('#toast-undo').addEventListener('click', function () {
-    if (toastUndo) {
-      var fn = toastUndo
+    if (toastUndoStack.length) {
+      var fn = toastUndoStack.pop()
       hideToast()
       fn()
     } else {
@@ -1003,11 +1017,14 @@
   $('#form-pedido').addEventListener('submit', function (e) {
     e.preventDefault()
     var name = $('#pedido-name').value.trim()
-    var trays = parseInt($('#pedido-trays').value)
-    var price = parseInt($('#pedido-price').value)
+    var trays = parseInt($('#pedido-trays').value, 10)
+    var price = parseInt($('#pedido-price').value, 10)
     var deliveryDate = $('#pedido-date').value || null
     var phone = ($('#pedido-phone') && $('#pedido-phone').value.trim()) || ''
-    if (!name || !trays || !price) return
+    if (!name || !trays || !price || trays < 1 || price < 1) {
+      showToast('Revisa los campos: nombre, bandejas y precio deben ser válidos ⚠️')
+      return
+    }
     addOrder(name, trays, price, deliveryDate, phone)
     $('#pedido-name').value = ''
     $('#pedido-trays').value = ''
@@ -1112,9 +1129,10 @@
   })
 
   function calcSuggestion () {
-    var boxes = parseInt($('#compra-boxes').value) || 0
-    var price = parseInt($('#compra-price').value) || 0
-    var markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
+    var boxes = parseInt($('#compra-boxes').value, 10) || 0
+    var price = parseInt($('#compra-price').value, 10) || 0
+    var checked = document.querySelector('input[name="markup"]:checked')
+    var markup = checked ? parseInt(checked.value, 10) : 30
     var suggested = boxes && price ? Math.round(price / 6 * (1 + markup / 100)) : 0
     $('#precio-sugerido').textContent = suggested ? '$' + fmt(suggested) : '$0'
   }
@@ -1124,11 +1142,15 @@
 
   $('#form-compra').addEventListener('submit', function (e) {
     e.preventDefault()
-    var boxes = parseInt($('#compra-boxes').value)
-    var price = parseInt($('#compra-price').value)
-    var markup = parseInt(document.querySelector('input[name="markup"]:checked').value)
-    var selling = parseInt($('#compra-selling').value) || 0
-    if (!boxes || !price) return
+    var boxes = parseInt($('#compra-boxes').value, 10)
+    var price = parseInt($('#compra-price').value, 10)
+    var checkedEl = document.querySelector('input[name="markup"]:checked')
+    var markup = checkedEl ? parseInt(checkedEl.value, 10) : 30
+    var selling = parseInt($('#compra-selling').value, 10) || 0
+    if (!boxes || !price || boxes < 1 || price < 1) {
+      showToast('Revisa los campos: cajas y valor deben ser válidos ⚠️')
+      return
+    }
     addPurchase(boxes, price, markup, selling)
     $('#compra-boxes').value = ''
     $('#compra-price').value = ''
@@ -1155,8 +1177,9 @@
     var a = document.createElement('a')
     a.href = url
     a.download = 'huevos-backup-' + new Date().toISOString().slice(0, 10) + '.json'
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url) }, 1000)
   })
 
   $('#btn-csv').addEventListener('click', function () {
@@ -1182,8 +1205,9 @@
     var a = document.createElement('a')
     a.href = url
     a.download = 'huevos-ventas-' + new Date().toISOString().slice(0, 10) + '.csv'
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url) }, 1000)
   })
 
   $('#btn-import').addEventListener('click', function () { $('#import-file').click() })

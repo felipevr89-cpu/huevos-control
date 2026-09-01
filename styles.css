@@ -242,7 +242,7 @@ input:focus { border-color: var(--amber-400); }
 }
 
 .checkbox-lg {
-  width: 24px; height: 24px; border-radius: 6px;
+  width: 28px; height: 28px; border-radius: 6px;
   border: 2px solid var(--amber-400); cursor: pointer;
   appearance: none; -webkit-appearance: none;
   display: flex; align-items: center; justify-content: center;
