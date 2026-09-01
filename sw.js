@@ -1,4 +1,4 @@
-const CACHE = 'huevos-v10'
+const CACHE = 'huevos-v11'
 const STATIC_FILES = ['/', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png']
 const DYNAMIC_FILES = ['/index.html', '/styles.css', '/app.js', '/manifest.json']
 
@@ -24,7 +24,7 @@ self.addEventListener('fetch', function (e) {
   var isDynamic = DYNAMIC_FILES.some(function (f) { return url.pathname === f })
   if (isDynamic) {
     e.respondWith(
-      fetch(e.request).then(function (res) {
+      fetch(e.request, { cache: 'no-cache' }).then(function (res) {
         var clone = res.clone()
         caches.open(CACHE).then(function (c) { c.put(e.request, clone) })
         return res

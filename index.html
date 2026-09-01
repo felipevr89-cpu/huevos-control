@@ -179,7 +179,7 @@
   <button id="toast-undo">Deshacer</button>
 </div>
 
-<script src="app.js"></script>
+<script src="app.js?v=11"></script>
 <script>
 if('serviceWorker' in navigator){navigator.serviceWorker.ready.then(function(r){if(r.active){r.active.postMessage({type:'SKIP_WAITING'})}});navigator.serviceWorker.addEventListener('controllerchange',function(){window.location.reload()})}
 </script>
