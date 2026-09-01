@@ -20,26 +20,25 @@
       <h1>🥚 Control Huevos</h1>
       <span id="header-date" class="header-date"></span>
     </div>
-    <div class="header-actions">
+    <div class="header-right">
       <span id="sync-status" class="sync-status sync-ok" title="Sincronizado">✅</span>
-      <span id="sync-label" class="sync-label">OK</span>
-      <button id="btn-csv" title="Exportar planilla CSV" aria-label="Exportar planilla CSV">📊</button>
-      <button id="btn-export" title="Exportar datos" aria-label="Exportar datos">📤</button>
-      <button id="btn-import" title="Importar datos" aria-label="Importar datos">📥</button>
-      <button id="btn-settings" title="Ajustes" aria-label="Ajustes">⚙️</button>
-      <input type="file" id="import-file" accept=".json" style="display:none">
+      <button id="btn-menu" class="menu-btn" aria-label="Abrir menú" aria-haspopup="true" aria-expanded="false">☰</button>
     </div>
   </header>
 
-  <nav id="tabs">
-    <button class="tab active" data-tab="pedidos">📋 Pedidos<span class="tab-badge" id="badge-pedidos"></span></button>
-    <button class="tab" data-tab="deudores">💰 Deudas<span class="tab-badge" id="badge-deudores"></span></button>
-    <button class="tab" data-tab="pagados">✅ Pagos</button>
-    <button class="tab" data-tab="clientes">👥 Clientes</button>
-    <button class="tab" data-tab="compras">📦 Compras</button>
-    <button class="tab" data-tab="contabilidad">📊 Cta.</button>
-    <button class="tab" data-tab="notas">📝 Notas</button>
+  <nav id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <span class="drawer-title">Menú</span>
+    </div>
+    <button id="menu-sync" class="drawer-item"><span class="di-ico">🔄</span><span class="di-txt">Sincronizar ahora</span></button>
+    <button id="btn-csv" class="drawer-item"><span class="di-ico">📊</span><span class="di-txt">Exportar planilla CSV</span></button>
+    <button id="btn-export" class="drawer-item"><span class="di-ico">📤</span><span class="di-txt">Exportar datos (JSON)</span></button>
+    <button id="btn-import" class="drawer-item"><span class="di-ico">📥</span><span class="di-txt">Importar datos</span></button>
+    <button id="btn-settings" class="drawer-item"><span class="di-ico">⚙️</span><span class="di-txt">Ajustes</span></button>
+    <div class="drawer-sync" id="drawer-sync">Estado de sincronización</div>
+    <input type="file" id="import-file" accept=".json" style="display:none">
   </nav>
+  <div id="menu-overlay" class="menu-overlay hidden"></div>
 
   <main id="content">
 
@@ -165,6 +164,18 @@
     </section>
 
   </main>
+
+  <nav id="nav-menu" class="bottom-nav">
+    <button class="tab active" data-tab="pedidos"><span class="tn-ico">📋</span><span class="tn-label">Pedidos</span><span class="tab-badge" id="badge-pedidos"></span></button>
+    <button class="tab" data-tab="deudores"><span class="tn-ico">💰</span><span class="tn-label">Deudas</span><span class="tab-badge" id="badge-deudores"></span></button>
+    <button class="tab" data-tab="pagados"><span class="tn-ico">✅</span><span class="tn-label">Pagos</span></button>
+    <button class="tab" data-tab="clientes"><span class="tn-ico">👥</span><span class="tn-label">Clientes</span></button>
+    <button class="tab" data-tab="compras"><span class="tn-ico">📦</span><span class="tn-label">Compras</span></button>
+    <button class="tab" data-tab="contabilidad"><span class="tn-ico">📊</span><span class="tn-label">Cta.</span></button>
+    <button class="tab" data-tab="notas"><span class="tn-ico">📝</span><span class="tn-label">Notas</span></button>
+  </nav>
+
+  <button id="fab" class="fab" aria-label="Nuevo pedido" title="Nuevo pedido">＋</button>
 </div>
 
 <div id="modal" class="modal hidden">
@@ -179,7 +190,7 @@
   <button id="toast-undo">Deshacer</button>
 </div>
 
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 <script>
 if('serviceWorker' in navigator){navigator.serviceWorker.ready.then(function(r){if(r.active){r.active.postMessage({type:'SKIP_WAITING'})}});navigator.serviceWorker.addEventListener('controllerchange',function(){window.location.reload()})}
 </script>

@@ -28,7 +28,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **Worker deploy**: `cd worker && wrangler deploy --config wrangler.toml`
 - **GitHub repo**: `felipevr89-cpu/huevos-control`
 - **Backups**: `/media/datos/Felipe/Cosas/Backups-Huevos/` (script `backup-huevos.sh`)
-- **Tag base**: `v13.0.0`
+- **Tag base**: `v14.0.0`
 
 ## Funcionalidades
 1. **Pedidos** — Crear, editar (✏️), eliminar, marcar como entregado
@@ -82,7 +82,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - El usuario tiene otra persona con la app en su celular (sync entre dispositivos)
 - Los backups diarios se generan con `backup-huevos.sh` Y con snapshots automáticos del worker (KV `snap:data:<key>:<fecha>`, últimos 14 días; endpoint `/api/backup`)
 - Tests: `node tests/worker-merge.test.mjs` (merge del worker)
-- **SW v12**: `cache: 'no-cache'` para archivos dinámicos, `huevos-v12` cache name
+- **SW v14**: `cache: 'no-cache'` para archivos dinámicos, `huevos-v14` cache name
 - **app.js** se carga con `?v=12` query string para bustear cache del navegador
 
 ## Historial de bugs
@@ -105,3 +105,4 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **v12: aceptaba números negativos** en pedidos/compras. **CORREGIDO en v12** (valida `>= 1`).
 - **v12: undo de toast se perdía** si llegaba otro toast. **CORREGIDO en v12** (stack de callbacks).
 - **v13: rediseño UI** (no bug funcional) — pass de diseño gráfico. Tamaños de toque ≥44px (botones de tarjeta 40px inline para no saturar ancho, botones primarios/header/tabs 44px), contraste mejorado (`card-detail` stone-500 = 4.8:1, `card-amount` amber-700, badges blanco/red-600), token de diseño (escala espaciado `--space-*`, tipografía `--fs-*`, `--min-touch`, `--radius-sm`), header degradado 72px con `top:72px` sticky para tabs sin solapamiento, inputs 46px con focus ring. Verificado sin desbordamiento a 390px. Cache SW `huevos-v13`, `app.js?v=13`, `set-info v13`. Screens: `/tmp/shots/`.
+- **v14: rediseño app móvil moderna** — header compacto 56px (título + pill de sync + botón menú hamburguesa ☰), drawer lateral derecho con acciones (Sincronizar ahora, Exportar CSV, Exportar JSON, Importar, Ajustes) + estado de sync, barra de navegación inferior fija (`#nav-menu.bottom-nav`) con 7 secciones icono+etiqueta y badge, FAB "＋" para nuevo pedido (scroll al form y foco en nombre), tabs `stone-500` inactivo/`amber-600` activo con indicador superior, `--min-touch:48px`. `updateSyncIcon` ya no usa `#sync-label` (eliminado) y actualiza `#drawer-sync`. Verificado: sin errores JS (console_err), sin desbordamiento a 390px en 5 tabs, drawer/FAB funcionales. Versiones `huevos-v14`, `app.js?v=14`, `set-info v14`. Screens: `/tmp/shots/`.

@@ -223,18 +223,24 @@
     const el = $('#sync-status')
     if (!el) return
     el.className = 'sync-status sync-' + state
-    const label = $('#sync-label')
     var t = ''
     if (lastSyncOk) {
       var d = new Date(lastSyncOk)
       t = d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0')
     }
-    if (state === 'syncing') { el.textContent = '🔄'; if (label) label.textContent = 'Sync…' }
-    else if (state === 'ok') { el.textContent = '✅'; if (label) label.textContent = dirty ? 'Pendiente' : ('OK ' + t) }
-    else { el.textContent = '⚠️'; if (label) label.textContent = 'Sin señal' }
+    if (state === 'syncing') { el.textContent = '🔄'; }
+    else if (state === 'ok') { el.textContent = '✅'; }
+    else { el.textContent = '⚠️'; }
     el.title = state === 'syncing' ? 'Sincronizando...'
       : state === 'ok' ? 'Sincronizado — toca para sincronizar ahora'
       : 'Error: ' + (syncMeta.lastError || 'desconocido') + ' — se reintentará automáticamente'
+    var dsync = $('#drawer-sync')
+    if (dsync) {
+      var txt = state === 'syncing' ? 'Sincronizando… 🔄'
+        : state === 'ok' ? ('Sincronizado ✅ · ' + (dirty ? 'Pendiente' : (t || 'ahora')))
+        : 'Sin señal ⚠️ · se reintentará automáticamente'
+      dsync.textContent = txt
+    }
   }
 
   function normalizeOrders () {
@@ -510,7 +516,7 @@
       '<input type="text" id="set-name" value="' + esc(s.businessName || '') + '" placeholder="Ej: Huevos Felipe" maxlength="40">' +
       '<label for="set-stock">Alertar cuando queden menos de (bandejas)</label>' +
       '<input type="number" id="set-stock" value="' + (s.stockAlertTrays || 10) + '" min="1" inputmode="numeric">' +
-      '<div class="set-info">v13 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
+      '<div class="set-info">v14 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
       '</div>' +
       '<div class="sheet-actions">' +
       '<button class="btn-primary" id="set-save">Guardar</button>' +
@@ -1270,6 +1276,65 @@
       doSync(true)
     })
   }
+
+  // ===== Menú lateral (drawer) y FAB =====
+  var drawer = $('#drawer')
+  var overlay = $('#menu-overlay')
+  var menuBtn = $('#btn-menu')
+
+  function closeMenu () {
+    if (!drawer) return
+    drawer.setAttribute('aria-hidden', 'true')
+    if (overlay) overlay.classList.add('hidden')
+    if (menuBtn) { menuBtn.setAttribute('aria-expanded', 'false'); menuBtn.textContent = '☰' }
+  }
+  function openMenu () {
+    if (!drawer) return
+    drawer.setAttribute('aria-hidden', 'false')
+    if (overlay) overlay.classList.remove('hidden')
+    if (menuBtn) { menuBtn.setAttribute('aria-expanded', 'true'); menuBtn.textContent = '✕' }
+  }
+  function toggleMenu () {
+    if (drawer && drawer.getAttribute('aria-hidden') === 'false') closeMenu()
+    else openMenu()
+  }
+
+  if (menuBtn) menuBtn.addEventListener('click', toggleMenu)
+  if (overlay) overlay.addEventListener('click', closeMenu)
+
+  var menuSync = $('#menu-sync')
+  if (menuSync) menuSync.addEventListener('click', function () {
+    if (!syncing) doSync(true)
+    closeMenu()
+    showToast('Sincronizando datos… 🔄')
+  })
+
+  // Cerrar el menú al usar cualquiera de sus acciones
+  ;['#btn-csv', '#btn-export', '#btn-import', '#btn-settings'].forEach(function (sel) {
+    var el = $(sel)
+    if (el) el.addEventListener('click', closeMenu)
+  })
+
+  // FAB → nuevo pedido
+  var fab = $('#fab')
+  if (fab) {
+    fab.addEventListener('click', function () {
+      switchTab('pedidos')
+      var form = $('#form-pedido')
+      if (form) {
+        setTimeout(function () {
+          form.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          var nameInput = $('#pedido-name')
+          if (nameInput) nameInput.focus()
+        }, 80)
+      }
+    })
+  }
+
+  // Cerrar el menú si se abre hace clic en un tab
+  document.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('.tab')) closeMenu()
+  })
 
   // ===== Service Worker auto-update =====
   if ('serviceWorker' in navigator) {
