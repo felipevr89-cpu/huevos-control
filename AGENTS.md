@@ -28,7 +28,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **Worker deploy**: `cd worker && wrangler deploy --config wrangler.toml`
 - **GitHub repo**: `felipevr89-cpu/huevos-control`
 - **Backups**: `/media/datos/Felipe/Cosas/Backups-Huevos/` (script `backup-huevos.sh`)
-- **Tag base**: `v15.0.0`
+- **Tag base**: `v16.0.0`
 
 ## Funcionalidades
 1. **Pedidos** — Crear, editar (✏️), eliminar, marcar como entregado
@@ -70,7 +70,7 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 ## Cómo funciona el sync (v11)
 - **Pull**: GET al worker, retorna todos los datos + `serverTime`
 - **Push**: POST al worker con TODOS los pedidos/compras (no solo delta). Worker hace merge LWW por `updatedAt`
-- **Clock skew**: Si `Date.now()` difiere >5min del `serverTime` del worker, se fuerza `lastUpload = 0` (push completo)
+- **Clock skew**: En cada pull se calcula `serverOffset = serverTime - Date.now()` y todos los `updatedAt`/`at` generados localmente usan `serverNow()` (reloj alineado al servidor), para que el merge LWW sea justo entre dispositivos aunque los relojes difieran. Si el skew local >5min además se fuerza push completo (`lastUpload = 0`).
 - **Triggers**: Al cargar (push), cada 60s (push), al volver a la pestaña (push), al reconectar (push), al guardar (push con 500ms debounce), tap en ícono de sync (push)
 - **Errores**: Se guardan en `syncMeta.lastError` y se muestran en el tooltip del ícono de sync
 - **Retry**: Exponencial backoff 30s → 60s → 120s → 240s → 300s (máx)
@@ -82,8 +82,8 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - El usuario tiene otra persona con la app en su celular (sync entre dispositivos)
 - Los backups diarios se generan con `backup-huevos.sh` Y con snapshots automáticos del worker (KV `snap:data:<key>:<fecha>`, últimos 14 días; endpoint `/api/backup`)
 - Tests: `node tests/worker-merge.test.mjs` (merge del worker)
-- **SW v14**: `cache: 'no-cache'` para archivos dinámicos, `huevos-v14` cache name
-- **app.js** se carga con `?v=12` query string para bustear cache del navegador
+- **SW v16**: `cache: 'no-cache'` para archivos dinámicos, `huevos-v16` cache name
+- **app.js** se carga con `?v=16` query string para bustear cache del navegador
 
 ## Historial de bugs
 - `write` tool falla silenciosamente — archivos no se persisten. **NUNCA usar `write` tool**, usar `bash` con heredoc `cat > file << 'EOF'`
@@ -107,3 +107,4 @@ App PWA de gestión de pedidos de huevos. Vanilla HTML/CSS/JS, sin frameworks. D
 - **v13: rediseño UI** (no bug funcional) — pass de diseño gráfico. Tamaños de toque ≥44px (botones de tarjeta 40px inline para no saturar ancho, botones primarios/header/tabs 44px), contraste mejorado (`card-detail` stone-500 = 4.8:1, `card-amount` amber-700, badges blanco/red-600), token de diseño (escala espaciado `--space-*`, tipografía `--fs-*`, `--min-touch`, `--radius-sm`), header degradado 72px con `top:72px` sticky para tabs sin solapamiento, inputs 46px con focus ring. Verificado sin desbordamiento a 390px. Cache SW `huevos-v13`, `app.js?v=13`, `set-info v13`. Screens: `/tmp/shots/`.
 - **v14: rediseño app móvil moderna** — header compacto 56px (título + pill de sync + botón menú hamburguesa ☰), drawer lateral derecho con acciones (Sincronizar ahora, Exportar CSV, Exportar JSON, Importar, Ajustes) + estado de sync, barra de navegación inferior fija (`#nav-menu.bottom-nav`) con 7 secciones icono+etiqueta y badge, FAB "＋" para nuevo pedido (scroll al form y foco en nombre), tabs `stone-500` inactivo/`amber-600` activo con indicador superior, `--min-touch:48px`. `updateSyncIcon` ya no usa `#sync-label` (eliminado) y actualiza `#drawer-sync`. Verificado: sin errores JS (console_err), sin desbordamiento a 390px en 5 tabs, drawer/FAB funcionales. Versiones `huevos-v14`, `app.js?v=14`, `set-info v14`. Screens: `/tmp/shots/`.
 - **v15: ajustes de layout post-v14** — formulario `#form-pedido` compactado (428→374px, inputs 44px, labels cortos "Teléfono (opcional)"/"Entrega (opcional)"); tarjetas de deudores reorganizadas en 2 filas (`.dcard`/`.dc-row1`/`.dc-row2`): fila1 = checkbox + nombre ("overflow-wrap:anywhere", ya no se trunca) + detalle "N bandejas · fecha" (SIN repetir el monto) + saldo destacado `.dc-amt`; fila2 = badge de días + "Abonado: $X" en verde + acciones a la derecha. Eliminada la redundancia `saldo-line` que repetía el saldo. Verificado a 390px sin desbordamiento. Versiones `huevos-v15`, `app.js?v=15`, `set-info v15`.
+- **v16: sync — cambios no llegaban entre dispositivos (LWW con relojes desincronizados)**: el merge del worker (y el pull) descartan en silencio edits cuyo `updatedAt` es menor. Los celulares generaban `updatedAt = Date.now()` local; si un dispositivo tenía el reloj atrasado, sus ediciones siempre perdían contra el otro (que subía timestamps mayores) y NUNCA llegaban, aunque el ícono dijera ✅. **CORREGIDO en v16**: en `pullRemote()` se calcula `serverOffset = serverTime - Date.now()` y todos los timestamps locales (`updatedAt`, `at` de deleted/payments, `notesUpdatedAt`, `settingsUpdatedAt`) ahora usan `serverNow()`. Verificado: worker GET 200 con 223 pedidos (222 + 2 nuevos del día), probe en Chrome headless contra worker real sin errores, tests merge 23/23. Versiones `huevos-v16`, `app.js?v=16`, `set-info v16`. Tag base `v16.0.0`.

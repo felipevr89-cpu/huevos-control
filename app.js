@@ -10,6 +10,7 @@
   let pushTimer = null
   let failStreak = 0
   let lastSyncOk = 0
+  let serverOffset = 0
 
   const SYNC_META_KEY = 'huevos_sync_meta'
   let syncMeta = loadSyncMeta()
@@ -63,13 +64,17 @@
     return Math.floor((todayStart - dateStart) / (1000 * 60 * 60 * 24))
   }
 
+  function serverNow () { return Date.now() + serverOffset }
+
   // ===== SYNC =====
   async function pullRemote () {
     const res = await fetch(SYNC_API, { headers: { 'X-Sync-Key': SYNC_KEY } })
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const json = await res.json()
-    // Clock skew detection: compare local time with server time
+    // Clock skew detection: align timestamps with server time so LWW merge works
+    // across devices even when local clocks differ.
     if (json.serverTime) {
+      serverOffset = json.serverTime - Date.now()
       var skew = Math.abs(Date.now() - json.serverTime)
       if (skew > 300000) { // >5 minutes
         clockSkewDetected = true
@@ -274,7 +279,7 @@
       deliveryDate: deliveryDate || null,
       phone: (phone || '').trim() || null,
       status: 'pending', payment: null, paid: false, paidDate: null,
-      updatedAt: Date.now()
+      updatedAt: serverNow()
     })
     saveData()
     showToast('Pedido de ' + name.trim() + ' guardado')
@@ -289,7 +294,7 @@
     order.total = trayCount * pricePerTray
     order.deliveryDate = deliveryDate || null
     if (phone !== undefined) order.phone = (phone || '').trim() || null
-    order.updatedAt = Date.now()
+    order.updatedAt = serverNow()
     saveData()
     showToast('Pedido actualizado')
   }
@@ -302,7 +307,7 @@
     order.paid = paid
     order.paidDate = paid ? today() : null
     order.deliveredAt = order.deliveredAt || today()
-    order.updatedAt = Date.now()
+    order.updatedAt = serverNow()
     saveData()
     showToast(paid ? 'Entregado y pagado ✅' : 'Entregado, queda como deudor 💰')
   }
@@ -312,7 +317,7 @@
     if (!order) return
     order.paid = true
     order.paidDate = today()
-    order.updatedAt = Date.now()
+    order.updatedAt = serverNow()
     saveData()
     showToast('Pago registrado ✅')
   }
@@ -321,7 +326,7 @@
     var order = data.orders.find(o => o.id === id)
     if (!order) return
     if (!data.deleted) data.deleted = []
-    data.deleted.push({ id, type: 'order', at: Date.now() })
+    data.deleted.push({ id, type: 'order', at: serverNow() })
     data.orders = data.orders.filter(o => o.id !== id)
     saveData()
     showToast('Pedido de ' + order.name + ' eliminado', function () {
@@ -379,7 +384,7 @@
     var suggestedTrayPrice = Math.round(trayCost * (1 + markupPercent / 100))
     data.purchases.push({
       id: genId(), boxCount, pricePerBox, markupPercent,
-      suggestedTrayPrice, sellingPrice: sellingPrice || suggestedTrayPrice, date: today(), updatedAt: Date.now()
+      suggestedTrayPrice, sellingPrice: sellingPrice || suggestedTrayPrice, date: today(), updatedAt: serverNow()
     })
     saveData()
     showToast('Compra registrada 📦')
@@ -390,7 +395,7 @@
     var purchase = data.purchases.find(p => p.id === id)
     if (!purchase) return
     if (!data.deleted) data.deleted = []
-    data.deleted.push({ id, type: 'purchase', at: Date.now() })
+    data.deleted.push({ id, type: 'purchase', at: serverNow() })
     data.purchases = data.purchases.filter(p => p.id !== id)
     saveData()
     showToast('Compra eliminada', function () {
@@ -411,8 +416,8 @@
     var o = data.orders.find(function (x) { return x.id === id })
     if (!o || !(amount > 0)) return
     if (!o.payments) o.payments = []
-    o.payments.push({ amount: amount, date: today(), at: Date.now() })
-    o.updatedAt = Date.now()
+    o.payments.push({ amount: amount, date: today(), at: serverNow() })
+    o.updatedAt = serverNow()
     if (saldoOf(o) <= 0) {
       o.paid = true
       o.paidDate = o.paidDate || today()
@@ -497,7 +502,7 @@
   function saveSettings (patch) {
     var s = getSettings()
     Object.keys(patch).forEach(function (k) { s[k] = patch[k] })
-    data.settingsUpdatedAt = Date.now()
+    data.settingsUpdatedAt = serverNow()
     saveData()
   }
 
@@ -516,7 +521,7 @@
       '<input type="text" id="set-name" value="' + esc(s.businessName || '') + '" placeholder="Ej: Huevos Felipe" maxlength="40">' +
       '<label for="set-stock">Alertar cuando queden menos de (bandejas)</label>' +
       '<input type="number" id="set-stock" value="' + (s.stockAlertTrays || 10) + '" min="1" inputmode="numeric">' +
-      '<div class="set-info">v15 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
+      '<div class="set-info">v16 · Los datos se sincronizan y tienen respaldo diario automático en la nube.</div>' +
       '</div>' +
       '<div class="sheet-actions">' +
       '<button class="btn-primary" id="set-save">Guardar</button>' +
@@ -942,8 +947,8 @@
       var timer = null
       textarea.addEventListener('input', function () {
         data.notes = textarea.value
-        data.notesUpdatedAt = Date.now()
-        textarea._lastLocalEdit = Date.now()
+        data.notesUpdatedAt = serverNow()
+        textarea._lastLocalEdit = serverNow()
         dirty = true
         saveSyncMeta()
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch (_) {}
@@ -1180,7 +1185,7 @@
   }
 
   $('#btn-export').addEventListener('click', function () {
-    var exportData = { orders: data.orders, purchases: data.purchases, notes: data.notes || '', notesUpdatedAt: data.notesUpdatedAt || Date.now(), deleted: data.deleted || [], settings: data.settings || null, settingsUpdatedAt: data.settingsUpdatedAt || 0 }
+    var exportData = { orders: data.orders, purchases: data.purchases, notes: data.notes || '', notesUpdatedAt: data.notesUpdatedAt || serverNow(), deleted: data.deleted || [], settings: data.settings || null, settingsUpdatedAt: data.settingsUpdatedAt || 0 }
     var json = JSON.stringify({ data: exportData }, null, 2)
     var blob = new Blob([json], { type: 'application/json' })
     var url = URL.createObjectURL(blob)
